@@ -1,5 +1,5 @@
 from collections import Counter
-from typing import Tuple
+from typing import Tuple, List
 
 class Hand:
     """
@@ -181,7 +181,7 @@ class Hand:
         """
         # start by packing the counts of each suit, using two bits per suit
         for i in range(number_of_players):
-            count = self.known_cards[range]
+            count = self.known_cards[i]
             assert(count >= 0 and count < 4)
             pos *= 4
             pos += count
@@ -196,7 +196,7 @@ class Hand:
             pos *= 2
             pos += count
         
-        return count
+        return pos
 
 class Cards:
     """
@@ -294,7 +294,29 @@ class Cards:
         if not self.hands[this].is_legal(suit):
             return _not_legal(verbose, "You cannot ask for a suit you do not have")
         return True
-    
+
+    def legal_moves(self, this) -> List[Tuple[int, int]]:
+        """
+        Returns a list of legal moves, expressed as tuples of
+        other, suit.
+        """
+        moves = []
+        suits = []
+
+        # we can ask for any card that we own or possibly own
+        this_hand = self.hands[this]
+        for i in range(len(self.hands)):
+            if this_hand.is_legal(i):
+                suits.append(i)
+
+        # we can ask any other player for a card, but not ourselves
+        for other in range(len(self.hands)):
+            if other != this:
+                for suit in suits:
+                    moves.append((other, suit))
+
+        return moves
+
     def position(self) -> int:
         """
         Returns a representation of the current set of hands as an integer,

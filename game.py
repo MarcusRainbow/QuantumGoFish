@@ -1,6 +1,6 @@
 from typing import List
 from cards import Cards
-from player import Player, HumanPlayer, RandomPlayer
+from player import Player, HumanPlayer, RandomPlayer, CleverPlayer
 from random import seed
 
 def play(players: List[Player]) -> int:
@@ -13,13 +13,13 @@ def play(players: List[Player]) -> int:
     """
     number_of_players = len(players)
     cards = Cards(number_of_players)
-    positions = set()
+    history = set()
     while True:
         for i, p in enumerate(players):
             cards.show(i)
-            other, suit = p.next_move(cards)
+            other, suit = p.next_move(i, cards, history)
             print(f"Player {i} requests suit {suit} from player {other}")
-            if players[other].has_card(suit, cards):
+            if players[other].has_card(other, i, suit, cards, history):
                 print(f"Player {other} hands card {suit} to player {i}")
                 cards.transfer(suit, other, i)
             else:
@@ -32,13 +32,13 @@ def play(players: List[Player]) -> int:
 
             # if a position repeats, it forces a draw
             position = cards.position()
-            if cards in positions:
+            if position in history:
                 return -1
-            positions.add(position)
+            history.add(position)
 
 if __name__ == "__main__":
     seed = 1001
-    players = [HumanPlayer(0), RandomPlayer(1)]
+    players = [CleverPlayer(), CleverPlayer()]
     result = play(players)
     if result >= 0:
         print(f"Winner was player {result}")
