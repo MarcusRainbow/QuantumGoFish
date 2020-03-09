@@ -116,10 +116,9 @@ class CleverPlayer(Player):
         Like next_move, but it also returns a result, which says what 
         the final best-case result is as a result of this move.
         """
-        # try all the legal moves. If there are none, it is stalemate
+        # try all the legal moves. (We know there must be some, as the player has some cards)
         legal_moves = cards.legal_moves(this)
         assert len(legal_moves) > 0
-        next_player = (this + 1) % cards.number_of_players()
         draw = None
         lose = None
         immediate_lose = None
@@ -142,7 +141,7 @@ class CleverPlayer(Player):
                 continue
             
             # if this move results in a draw, remember it
-            position = copy_cards.position()
+            position = copy_cards.position(this)
             immediate_draw = position in history
             if immediate_draw:
                 draw = (other, suit, -1)
@@ -152,6 +151,7 @@ class CleverPlayer(Player):
                 continue        # stop looking if we have hit a draw
 
             # Allow the next player to play their best move
+            next_player = copy_cards.next_player(this)
             _, _, next_winner = self._evaluate_move(next_player, copy_cards, copy_history)
             
             # If this results in a win for us, play this move
