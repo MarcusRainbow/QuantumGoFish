@@ -1,9 +1,7 @@
-from typing import List
 from cards import Cards
-from player import Player, HumanPlayer, RandomPlayer, CleverPlayer
 from random import seed
 
-def play(players: List[Player]) -> int:
+def play(players) -> int:
     """
     Plays the game with the given list of players until one
     player wins or there is a draw. If a player wins, the
@@ -21,10 +19,10 @@ def play(players: List[Player]) -> int:
             print(f"Player {i} requests suit {suit} from player {other}")
             if players[other].has_card(other, i, suit, cards, history):
                 print(f"Player {other} hands card {suit} to player {i}")
-                cards.transfer(suit, other, i)
+                cards.transfer(suit, other, i, False)
             else:
                 print(f"Player {other} has no cards of suit {suit}")
-                cards.no_transfer(suit, other, i)
+                cards.no_transfer(suit, other, i, False)
             winner = cards.test_winner(i)
             if winner >= 0:
                 cards.show(-1)
@@ -35,12 +33,3 @@ def play(players: List[Player]) -> int:
             if position in history:
                 return -1
             history.add(position)
-
-if __name__ == "__main__":
-    seed = 1001
-    players = [CleverPlayer(), CleverPlayer()]
-    result = play(players)
-    if result >= 0:
-        print(f"Winner was player {result}")
-    else:
-        print(f"Draw")

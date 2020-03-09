@@ -1,5 +1,6 @@
 from collections import Counter
 from typing import Tuple, List
+from copy import deepcopy
 
 class Hand:
     """
@@ -38,21 +39,25 @@ class Hand:
         else:
             print()
 
-    def ensure_have(self, suit):
+    def ensure_have(self, suit) -> bool:
         """
-        Make sure we have one of these cards. (The player has just
-        requested a card from this suit.)
+        Make sure we have one of these cards. The player has just
+        requested a card from this suit. Returns True if we were
+        able to validate this.
         """
 
         # easy if we already have one
         if suit in self.known_cards:
             assert(self.known_cards[suit] > 0)
-            return
+            return True
         
         # convert one of the unknowns into one of these
-        assert suit not in self.known_voids, f"Cannot ask for {suit} as we know you don't have any"
+        if suit in self.known_voids:
+            return False
+
         self._remove_unknown()
         self.known_cards[suit] = 1
+        return True
 
     def _remove_unknown(self):
         assert(self.number_of_unknown_cards > 0)
@@ -60,18 +65,20 @@ class Hand:
         if self.number_of_unknown_cards == 0:
             self.known_voids.clear()
 
-    def ensure_have_not(self, suit):
+    def ensure_have_not(self, suit) -> bool:
         """
         We know this hand does not contain this suit. For example the player has
-        rejected a request for a card.
+        rejected a request for a card. Returns True if we were able to validate it.
         """
-        assert suit not in self.known_cards, f"Cannot reject {suit} as we know you have one"
+        if suit in self.known_cards:
+            return False
         self.known_voids.add(suit)
+        return True
 
-    def remove(self, suit):
+    def remove(self, suit) -> bool:
         """
         Take one card of this suit away from the user. If it is a known card, remove that.
-        If not, take it from the unknowns.
+        If not, take it from the unknowns. Returns True if we were able to remove it
         """
         if suit in self.known_cards:
             count = self.known_cards[suit]
@@ -79,9 +86,12 @@ class Hand:
                 self.known_cards[suit] = count - 1
             else:
                 del self.known_cards[suit]  # avoid empties
+            return True
+        elif suit in self.known_voids:
+            return False
         else:
-            assert suit not in self.known_voids, f"We know you don't have any {suit}"     
             self._remove_unknown()
+            return True
 
     def add(self, suit):
         """
@@ -221,28 +231,73 @@ class Cards:
             hand.show(i == next_player)
         print()
 
-    def transfer(self, suit, other, this):
+    def transfer(self, suit, other, this, no_throw) -> bool:
         """
-        Moves a card from one hand to another after a successful request
+        Moves a card from one hand to another after a successful request.
+        Returns True if it could be done.
         """
-        self.hands[this].ensure_have(suit) # must have the suit to be able to ask
-        self.hands[other].remove(suit)     # take away one card
+        # must have the suit to be able to ask
+        if not self.hands[this].ensure_have(suit):
+            if no_throw:
+                return False
+            assert False, f"Cannot ask for {suit} as we know you don't have any"
+        if not self.hands[other].remove(suit):
+            if no_throw:
+                return False
+            assert False, f"We know player {other} doesn't have any {suit}"
         self.hands[this].add(suit)         # and give it to this player
+        return True
 
-    def no_transfer(self, suit, other, this):
+    def no_transfer(self, suit, other, this, no_throw) -> bool:
         """
         Records an unsuccessful request for a transfer
         """
-        self.hands[this].ensure_have(suit) # must have the suit to be able to ask
-        self.hands[other].ensure_have_not(suit)  # other player must have a void
-
+        # must have the suit to be able to ask
+        if not self.hands[this].ensure_have(suit):
+            if no_throw:
+                return False
+            assert False, f"Cannot ask for {suit} as we know you don't have any"
+        # other player must have a void
+        if not self.hands[other].ensure_have_not(suit):
+            if no_throw:
+                return False
+            assert False, f"Cannot reject {suit} as we know you have one"
+        return True
+  
     def test_winner(self, last_player: int):
         """
         Is there a winner? If so, return the number of
         the winner. If not, return -1
         """
+        # First shake down the cards to resolve anything that
+        # we can logically deduce
+        if not self.shake_down():
+            self.show(-1)
+            assert False, "The cards are logically inconsistent"
 
-        # Keep shaking until nothing settles out
+        # Is the situation entirely determined?
+        all_determined = True
+        for hand in self.hands:
+            if not hand.is_determined():
+                all_determined = False
+                break
+        if all_determined:
+            return last_player
+
+        # Are there any hands with four of anything?
+        for i, hand in enumerate(self.hands):
+            if hand.has_four_of_a_kind():
+                return i
+
+        # otherwise there are no winners yet
+        return -1
+
+    def shake_down(self) -> bool:
+        """
+        Resolve any logical inferences that can be made on the cards.
+        Returns True if the cards are logically consistent.
+        """
+        # Keep shaking until nothing else settles out
         any_changes = True
         while any_changes:
             any_changes = False
@@ -253,7 +308,8 @@ class Cards:
             for hand in self.hands:
                 hand.running_totals(totals)
             for suit, total in totals.items():
-                assert total <= 4, f"We have {total} cards in suit {suit}!"
+                if total > 4:
+                    return False
                 if total == 4:
                     for hand in self.hands:
                         if hand.kill_unknown(suit):
@@ -266,19 +322,7 @@ class Cards:
                     any_changes = True
 
             # TODO there may be other logical moves to clarify what we know
-
-        # Are there any hands with four of anything?
-        for i, hand in enumerate(self.hands):
-            if hand.has_four_of_a_kind():
-                return i
-
-        # Is the situation entirely determined?
-        for hand in self.hands:
-            if hand.is_determined():
-                return last_player
-
-        # otherwise there are no winners yet
-        return -1
+        return True
 
     def legal(self, other, suit, this, verbose: bool) -> bool:
         """
@@ -299,6 +343,11 @@ class Cards:
         """
         Returns a list of legal moves, expressed as tuples of
         other, suit.
+
+        Note that it would be possible for a theoretically legal
+        move to have no legal reply. This case should be rejected
+        by shake_down, which should add to the known_void list any
+        suit that would have no legal reply.
         """
         moves = []
         suits = []
@@ -328,12 +377,32 @@ class Cards:
             pos = hand.position(pos, number_of_players)
         return pos
 
-    def has_card(self, suit, this) -> Tuple[bool, bool]:
+    def has_card(self, suit, this, other) -> Tuple[bool, bool]:
         """
         Does the given hand contain this card?
         Returns a tuple of [forced, yes/no]
         """
-        return self.hands[this].has_card(suit)
+        # first check the hand itself
+        forced, has = self.hands[this].has_card(suit)
+        if forced:
+            return forced, has
+        
+        # It is possible that the choice may be forced even
+        # it does not appear so from our individual hand. For
+        # example, saying "no" means that none of our cards
+        # are of the given suit, which means they must be of
+        # the other suits. Check that this does not lead to
+        # inconsistencies.
+        copy = deepcopy(self)
+        if not copy.no_transfer(suit, this, other, True) or not copy.shake_down():
+            return True, True   # forced because "no" results in inconsistency
+
+        copy = deepcopy(self)
+        if not copy.transfer(suit, this, other, True) or not copy.shake_down():
+            return True, False   # forced because "yes" results in inconsistency
+  
+        # genuinely unforced
+        return False, False
 
 def _not_legal(verbose, message) -> bool:
     if verbose:

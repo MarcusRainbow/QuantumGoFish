@@ -3,6 +3,7 @@ from typing import List, Tuple, Set
 from random import randrange
 from copy import deepcopy
 from cards import Cards
+from game import play
 
 class Player(ABC):
     """
@@ -48,7 +49,7 @@ class HumanPlayer(Player):
         If we have definitely have or do not have the card, we
         do not ask the user. Otherwise we must ask
         """
-        forced, has = cards.has_card(suit, this)
+        forced, has = cards.has_card(suit, this, other)
         if forced:
             return has
         while True:
@@ -77,7 +78,7 @@ class RandomPlayer(Player):
                 return other, card
     
     def has_card(self, this: int, other: int, suit: int, cards: Cards, history: Set[int]) -> bool:
-        forced, has = cards.has_card(suit, this)
+        forced, has = cards.has_card(suit, this, other)
         if forced:
             return has
         
@@ -115,22 +116,30 @@ class CleverPlayer(Player):
         Like next_move, but it also returns a result, which says what 
         the final best-case result is as a result of this move.
         """
-        # try all the legal moves
+        # try all the legal moves. If there are none, it is stalemate
         legal_moves = cards.legal_moves(this)
         assert len(legal_moves) > 0
         next_player = (this + 1) % cards.number_of_players()
         draw = None
+        lose = None
+        immediate_lose = None
         for other, suit in legal_moves:
             copy_cards = deepcopy(cards)
-            if self.has_card(this, other, suit, copy_cards, history):
-                copy_cards.transfer(suit, other, this)
+            has = self.has_card(other, this, suit, copy_cards, history)
+            if has:
+                copy_cards.transfer(suit, other, this, False)
             else:
-                copy_cards.no_transfer(suit, other, this)
+                copy_cards.no_transfer(suit, other, this, False)
             winner = copy_cards.test_winner(this)
 
             # if this move wins immediately, play it
             if winner == this:
                 return other, suit, winner
+            
+            # if this move loses immediately, keep looking
+            if winner >= 0:
+                immediate_lose = other, suit, winner
+                continue
             
             # if this move results in a draw, remember it
             position = copy_cards.position()
@@ -153,19 +162,100 @@ class CleverPlayer(Player):
             if next_winner < 0:
                 draw = (other, suit, -1)
 
+            # Record a losing move, in case we cannot win
+            else:
+                lose = (other, suit, next_winner)
+
         # force a draw if we can
         if draw is not None:
             return draw
 
-        # nothing works. Just play the first
-        # TODO consider playing the best available bad move. E.g. one that loses slowly
-        return legal_moves[0]
+        # an eventual lose is slightly better than an immediate one
+        if lose is not None:
+            return lose
+ 
+        # nothing works. Just play any losing move
+        assert immediate_lose is not None
+        return immediate_lose
     
     def has_card(self, this: int, other: int, suit: int, cards: Cards, history: Set[int]) -> bool:
         # if the move is forced, don't think about it
-        forced, has = cards.has_card(suit, this)
+        forced, has = cards.has_card(suit, this, other)
         if forced:
             return has
 
-        # TODO do this properly, but for now just assume it is always best to have the card
-        return True
+        # otherwise make the move that results in a win or failing that a draw
+        # try saying yes, which is generally the best option.
+        copy_cards = deepcopy(cards)
+        copy_cards.transfer(suit, this, other, False)
+        winner = copy_cards.test_winner(other)
+        if winner == this:
+            return True     # saying yes gives us an immediate win!
+
+        # if this results in an immediate win for someone else, say no
+        if winner >= 0:
+            return False
+
+        # Allow the next player to play their best move
+        next_player = (other + 1) % cards.number_of_players()
+        copy_history = deepcopy(history)
+        _, _, next_winner = self._evaluate_move(next_player, copy_cards, copy_history)
+        
+        # If this results in a win for us, say yes
+        if next_winner == this:
+            return True
+        
+        # If it results in a draw, record it
+        yes_results_in_draw = next_winner < 0
+
+        # now try saying no
+        copy_cards = deepcopy(cards)
+        copy_cards.no_transfer(suit, this, other, False)
+        winner = copy_cards.test_winner(other)
+        if winner == this:
+            return False    # saying no gives us an immediate win
+
+        # if this results in an immediate win for someone else, say yes
+        if winner >= 0:
+            return True
+
+        # Allow the next player to play their best move
+        copy_history = deepcopy(history)
+        _, _, next_winner = self._evaluate_move(next_player, copy_cards, copy_history)
+        
+        # If this results in a win for us, say no
+        if next_winner == this:
+            return False
+        
+        # If yes would have resulted in a draw, then say yes
+        if yes_results_in_draw:
+            return True
+        
+        # Nothing works -- just say no
+        return False
+
+def test_two_clever_players():
+    players = [CleverPlayer(), CleverPlayer()]
+    result = play(players)
+    if result == -1:
+        print("Result is a draw")
+    else:
+        print(f"Win for player {result}")
+    assert result == -1, "test_two_clever_players: expecting a draw"
+    print("----------------")
+    print()
+
+def test_three_clever_players():
+    players = [CleverPlayer(), CleverPlayer(), CleverPlayer()]
+    result = play(players)
+    if result == -1:
+        print("Result is a draw")
+    else:
+        print(f"Win for player {result}")
+    assert result == -1, "test_two_clever_players: expecting a draw"
+    print("----------------")
+    print()
+
+if __name__ == "__main__":
+    test_two_clever_players()
+    test_three_clever_players()
