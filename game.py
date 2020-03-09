@@ -15,6 +15,10 @@ def play(players) -> int:
     while True:
         for i, p in enumerate(players):
             cards.show(i)
+            if cards.is_empty(i):
+                print(f"Player {i} must skip as they have no cards")
+                continue
+
             other, suit = p.next_move(i, cards, history)
             print(f"Player {i} requests suit {suit} from player {other}")
             if players[other].has_card(other, i, suit, cards, history):
@@ -29,7 +33,7 @@ def play(players) -> int:
                 return winner
 
             # if a position repeats, it forces a draw
-            position = cards.position()
+            position = cards.position(i)
             if position in history:
                 return -1
             history.add(position)

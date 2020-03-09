@@ -18,6 +18,12 @@ class Hand:
         self.known_voids = set()            # set of suits we know we don't have
         self.number_of_unknown_cards = 4    # we always start with four cards
 
+    def is_empty(self):
+        """
+        Returns true if this player has no cards at all.
+        """
+        return not self.known_cards and self.number_of_unknown_cards == 0
+
     def show(self, is_next_player: bool):
         """
         Write to stdout a representation of the hand
@@ -214,10 +220,12 @@ class Cards:
     of players. There are four cards per player, and the same
     number of suits as players.
     """
-
     def __init__(self, number_of_players):
         self.hands = [Hand() for _ in range(number_of_players)]
     
+    def is_empty(self, player):
+        return self.hands[player].is_empty()
+
     def number_of_players(self):
         return len(self.hands)
 
@@ -366,12 +374,12 @@ class Cards:
 
         return moves
 
-    def position(self) -> int:
+    def position(self, last_player: int) -> int:
         """
         Returns a representation of the current set of hands as an integer,
         so we can test whether the position repeats.
         """
-        pos = 0
+        pos = last_player
         number_of_players = len(self.hands)
         for hand in self.hands:
             pos = hand.position(pos, number_of_players)
@@ -403,6 +411,17 @@ class Cards:
   
         # genuinely unforced
         return False, False
+    
+    def next_player(self, this_player: int) -> int:
+        """
+        Finds the next player who is able to move (has any cards)
+        """
+        n = self.number_of_players()
+        p = (this_player + 1) % n
+        while self.hands[p].is_empty():
+            p = (p + 1) % n
+            assert p != this_player, "At least one player must have some cards"
+        return p            
 
 def _not_legal(verbose, message) -> bool:
     if verbose:
