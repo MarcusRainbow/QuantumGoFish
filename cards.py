@@ -186,6 +186,35 @@ class Hand:
         else:
             return False, True  # We may or may not have it
 
+    def fill_unknowns(self, totals: Counter) -> bool:
+        """
+        If only one of the hands has any unknowns in it, we
+        can fill them given the counts of other cards. Returns
+        True if it cannot be done.
+        """
+        for suit, count in totals.items():
+            if count < 4:
+                if not self.fill_unknown_suit(suit, count):
+                    return False
+        
+        assert self.number_of_unknown_cards == 0
+        return True
+
+    def fill_unknown_suit(self, suit, count) -> bool:
+        """
+        If only one of the hands has all the unknowns in
+        a given suit, we can fill them in. Returns False if
+        it cannot be done.
+        """
+        assert count < 4
+        remaining = 4 - count
+        if self.number_of_unknown_cards < remaining:
+            return False
+        assert suit not in self.known_voids
+        self.number_of_unknown_cards -= remaining
+        self.known_cards[suit] += remaining
+        return True
+
     def position(self, pos: int, number_of_players: int) -> int:
         """
         Returns a representation of this hand as an integer, so
@@ -242,7 +271,9 @@ class Cards:
     def transfer(self, suit, other, this, no_throw) -> bool:
         """
         Moves a card from one hand to another after a successful request.
-        Returns True if it could be done.
+        _this_ is the player who asked for the transfer. _other_ is the
+        player who said they did not have the card. Returns True if it 
+        could be done.
         """
         # must have the suit to be able to ask
         if not self.hands[this].ensure_have(suit):
@@ -258,7 +289,10 @@ class Cards:
 
     def no_transfer(self, suit, other, this, no_throw) -> bool:
         """
-        Records an unsuccessful request for a transfer
+        Records an unsuccessful request for a transfer. _this_ is the
+        player who asked for the transfer. _other_ is the player who
+        said they did not have the card. Returns True if it could be
+        done.
         """
         # must have the suit to be able to ask
         if not self.hands[this].ensure_have(suit):
@@ -316,19 +350,49 @@ class Cards:
             for hand in self.hands:
                 hand.running_totals(totals)
             for suit, total in totals.items():
+                # if we have made changes, break out of the loop so we redo the totals
+                if any_changes:
+                    break
                 if total > 4:
                     return False
                 if total == 4:
                     for hand in self.hands:
                         if hand.kill_unknown(suit):
                             any_changes = True
+                else:
+                    have_unknowns = 0
+                    with_unknowns = None
+                    for hand in self.hands:
+                        if hand.number_of_unknown_cards > 0 and not suit in hand.known_voids:
+                            have_unknowns += 1
+                            with_unknowns = hand
+                    if have_unknowns == 1:
+                        if not with_unknowns.fill_unknown_suit(suit, total):
+                            return False
+                        any_changes = True
         
             # If all the unknown cards in a hand are of just one suit,
             # force them to be known.
             for hand in self.hands:
                 if hand.force_unknowns(len(self.hands)):
                     any_changes = True
-
+            
+            # redo the totals if there were any changes
+            if any_changes:
+                continue
+            
+            # If all the unknowns are in one hand, we must know what they are
+            have_unknowns = 0
+            with_unknowns = None
+            for hand in self.hands:
+                if hand.number_of_unknown_cards > 0:
+                    have_unknowns += 1
+                    with_unknowns = hand
+            if have_unknowns == 1:
+                if not with_unknowns.fill_unknowns(totals):
+                    return False
+                any_changes = True
+            
             # TODO there may be other logical moves to clarify what we know
         return True
 
@@ -427,3 +491,94 @@ def _not_legal(verbose, message) -> bool:
     if verbose:
         print(message)
     return False
+
+def test_no_transfer():
+    """
+    Tests the case where we have 000/22?/111???x0
+    and player 1 asks player 0 for a 1.
+    """
+    h0 = Hand()
+    h0.known_cards = Counter({0: 3})
+    h0.number_of_unknown_cards = 0
+    h1 = Hand()
+    h1.known_cards = Counter({2: 2})
+    h1.number_of_unknown_cards = 1
+    h2 = Hand()
+    h2.known_cards = Counter({1: 3})
+    h2.number_of_unknown_cards = 3
+    #h2.known_voids = {0}
+    cards = Cards(3)
+    cards.hands = [h0, h1, h2]
+
+    # cards.show(1)
+    # print("player 1 asks player 0 for a 1, who must say no")
+    cards.no_transfer(1, 0, 1, False)
+    # cards.show(-1)
+
+    print("shake_down")
+    cards.shake_down()
+    # cards.show(-1)
+
+    assert cards.hands[0].known_cards == {0: 3}
+    assert cards.hands[1].known_cards == {2: 2, 1: 1}
+    assert cards.hands[2].known_cards == {1: 3, 0: 1, 2: 2}
+    print("test_no_transfer: succeeded")
+
+def test_no_transfer_2():
+    """
+    Initial hands: 0???/00??
+    Player 0 asks player 1 for 1, who refuses. (This is
+    illegal, but we should handle this gracefully.)
+    """
+    h0 = Hand()
+    h0.known_cards = Counter({0: 1})
+    h0.number_of_unknown_cards = 3
+    h1 = Hand()
+    h1.known_cards = Counter({0: 2})
+    h1.number_of_unknown_cards = 2
+    cards = Cards(2)
+    cards.hands = [h0, h1]
+
+    # cards.show(0)
+    # print("player 0 asks player 1 for a 1, who refuses")
+    transferred = cards.no_transfer(1, 1, 0, True)
+    # cards.show(-1)
+
+    assert transferred
+    print("test_no_transfer_2: succeeded")
+
+def test_shake_down():
+    """
+    Tests the case where we have 001/0?x1/22211??x0 and
+    we shake_down. We know that player 1 cannot have a 2
+    because that means player 2 would have to have a 0
+    and that is excluded.
+    """
+    h0 = Hand()
+    h0.known_cards = Counter({0: 2, 1: 1})
+    h0.number_of_unknown_cards = 0
+    h1 = Hand()
+    h1.known_cards = Counter({0: 1})
+    h1.number_of_unknown_cards = 1
+    h1.known_voids = {1}
+    h2 = Hand()
+    h2.known_cards = Counter({2: 3, 1: 2})
+    h2.number_of_unknown_cards = 2
+    h2.known_voids = {0}
+    cards = Cards(3)
+    cards.hands = [h0, h1, h2]
+
+    # cards.show(-1)
+    # print("shake_down")
+    cards.shake_down()
+    # cards.show(-1)
+
+    assert cards.hands[0].known_cards == {0: 2, 1: 1}
+    assert cards.hands[1].known_cards == {0: 2}
+    assert cards.hands[2].known_cards == {2: 4, 1: 3}
+    print("test_shake_down: succeeded")
+
+if __name__ == "__main__":
+    test_no_transfer()
+    test_no_transfer_2()
+    test_shake_down()

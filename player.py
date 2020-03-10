@@ -104,14 +104,24 @@ class CleverPlayer(Player):
     Implementation of Player that looks ahead, playing the best move
     available.
     """
-    def __init__(self):
-        pass
+    def __init__(self, max_depth = 1000, max_has_depth = 10):
+        """
+        The max_depth specifies how far ahead the player will look
+        before making a move. For example, zero means only consider
+        the immediate move, so don't play into an immediate lose.
+
+        The max_has_depth specifies how far ahead the player will look
+        before saying whether they have a card. For example, zero means
+        only worry about the immediate effect.
+        """
+        self.max_depth = max_depth
+        self.max_has_depth = max_has_depth
 
     def next_move(self, this: int, cards: Cards, history: Set[int]) -> Tuple[int, int]:
-        other, suit, _ = self._evaluate_move(this, cards, history)
+        other, suit, _ = self._evaluate_move(this, cards, history, self.max_depth)
         return other, suit
 
-    def _evaluate_move(self, this: int, cards: Cards, history: Set[int]) -> Tuple[int, int, int]:
+    def _evaluate_move(self, this: int, cards: Cards, history: Set[int], depth: int) -> Tuple[int, int, int]:
         """
         Like next_move, but it also returns a result, which says what 
         the final best-case result is as a result of this move.
@@ -120,6 +130,7 @@ class CleverPlayer(Player):
         legal_moves = cards.legal_moves(this)
         assert len(legal_moves) > 0
         draw = None
+        out_of_depth = None
         lose = None
         immediate_lose = None
         for other, suit in legal_moves:
@@ -140,19 +151,24 @@ class CleverPlayer(Player):
                 immediate_lose = other, suit, winner
                 continue
             
+            # if we have hit our maximum depth, assume this is a draw
+            if depth == 0:
+                out_of_depth = (other, suit, -1)
+                continue
+
             # if this move results in a draw, remember it
             position = copy_cards.position(this)
-            immediate_draw = position in history
-            if immediate_draw:
+            if position in history:
                 draw = (other, suit, -1)
+                continue        # stop looking if we have hit a draw                
+
+            # remember this position, so we recognise a subsequent draw
             copy_history = deepcopy(history)
             copy_history.add(position)
-            if immediate_draw:
-                continue        # stop looking if we have hit a draw
 
             # Allow the next player to play their best move
             next_player = copy_cards.next_player(this)
-            _, _, next_winner = self._evaluate_move(next_player, copy_cards, copy_history)
+            _, _, next_winner = self._evaluate_move(next_player, copy_cards, copy_history, depth - 1)
             
             # If this results in a win for us, play this move
             if next_winner == this:
@@ -169,6 +185,10 @@ class CleverPlayer(Player):
         # force a draw if we can
         if draw is not None:
             return draw
+        
+        # if we were unable to probe to the end of any moves, use one
+        if out_of_depth is not None:
+            return out_of_depth
 
         # an eventual lose is slightly better than an immediate one
         if lose is not None:
@@ -196,10 +216,14 @@ class CleverPlayer(Player):
         if winner >= 0:
             return False
 
+        # if the max depth is zero, do no lookahead -- just say yes
+        if self.max_has_depth == 0:
+            return True
+
         # Allow the next player to play their best move
         next_player = (other + 1) % cards.number_of_players()
         copy_history = deepcopy(history)
-        _, _, next_winner = self._evaluate_move(next_player, copy_cards, copy_history)
+        _, _, next_winner = self._evaluate_move(next_player, copy_cards, copy_history, self.max_has_depth - 1)
         
         # If this results in a win for us, say yes
         if next_winner == this:
@@ -221,7 +245,7 @@ class CleverPlayer(Player):
 
         # Allow the next player to play their best move
         copy_history = deepcopy(history)
-        _, _, next_winner = self._evaluate_move(next_player, copy_cards, copy_history)
+        _, _, next_winner = self._evaluate_move(next_player, copy_cards, copy_history, self.max_has_depth - 1)
         
         # If this results in a win for us, say no
         if next_winner == this:
@@ -235,7 +259,8 @@ class CleverPlayer(Player):
         return False
 
 def test_two_clever_players():
-    players = [CleverPlayer(), CleverPlayer()]
+    player = CleverPlayer(10, 2)
+    players = [player, player]
     result = play(players)
     if result == -1:
         print("Result is a draw")
@@ -246,7 +271,8 @@ def test_two_clever_players():
     print()
 
 def test_three_clever_players():
-    players = [CleverPlayer(), CleverPlayer(), CleverPlayer()]
+    player = CleverPlayer(10, 0)
+    players = [player, player, player]
     result = play(players)
     if result == -1:
         print("Result is a draw")
