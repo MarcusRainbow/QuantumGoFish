@@ -1,6 +1,7 @@
 from collections import Counter
 from typing import Tuple, List
 from copy import deepcopy
+import numpy as np
 
 class Hand:
     """
@@ -215,7 +216,7 @@ class Hand:
         self.known_cards[suit] += remaining
         return True
 
-    def position(self, pos: int, number_of_players: int) -> int:
+    def position(self, pos: int, permutation: np.ndarray) -> int:
         """
         Returns a representation of this hand as an integer, so
         we can easily test whether the hand repeats. Pass in the
@@ -225,7 +226,7 @@ class Hand:
         the count of cards in any suit must be less than four.
         """
         # start by packing the counts of each suit, using two bits per suit
-        for i in range(number_of_players):
+        for i in permutation:
             count = self.known_cards[i]
             assert(count >= 0 and count < 4)
             pos *= 4
@@ -236,12 +237,38 @@ class Hand:
         pos += self.number_of_unknown_cards
 
         # finally, pack one bit for each known void
-        for i in range(number_of_players):
+        for i in permutation:
             count = 1 if i in self.known_voids else 0
             pos *= 2
             pos += count
         
         return pos
+
+    def adjust_ranking(self, rankings):
+        """
+        Given an array of rankings for the different suits,
+        adjust the rankings to make more common suits higher
+        than less common ones. This function is called
+        for each hand in turn, with the earlier invocations
+        more significant than the later.
+        """
+        # Shift the existing rankings up out of the way      
+        n = len(rankings)
+        rankings *= n
+
+        # add the suit counts to the rankings
+        for i in range(n):
+            rankings[i] += self.known_cards[i]
+        
+        # make space for the voids
+        rankings *= 2
+
+        # add any voids to the rankings (count one each)
+        for i in range(n):
+            if i in self.known_voids:
+                rankings[i] += 1
+        
+        return rankings
 
 class Cards:
     """
@@ -456,13 +483,43 @@ class Cards:
     def position(self, last_player: int) -> int:
         """
         Returns a representation of the current set of hands as an integer,
-        so we can test whether the position repeats.
+        so we can test whether the position repeats. The position function
+        is carefully written to give the same result for different instances
+        of symmetric positions. The following symmetries are handled:
+
+        * Rotation of players (e.g. player 0 -> 1, 1 -> 2 and 2 -> 0)
+        * Permutation of suits (e.g. swapping any two suits)
         """
-        pos = last_player
-        number_of_players = len(self.hands)
-        for hand in self.hands:
-            pos = hand.position(pos, number_of_players)
+        # Handle permutation of suits by ordering them according to how
+        # they appear in the hands.
+        permutation = self.permutation(last_player)
+
+        # Handle rotation of players by always starting from the last
+        # player. This also means we do not need to encode the player
+        # number.
+        pos = 0
+        n = len(self.hands)
+        assert last_player < n
+        for i in range(n):
+            hand = self.hands[(i + last_player) % n]
+            pos = hand.position(pos, permutation)
         return pos
+
+    def permutation(self, last_player) -> List[int]:
+        """
+        Handle permutation of suits by ordering them according to how
+        they appear in the hands: the most common suit in the first
+        hand, down to the last suit seen. Suits that are not seen at
+        all, or which have the same ordering in all hands, are ordered
+        arbitrarily.
+        """
+        n = len(self.hands)
+        assert last_player < n
+        ranking = np.zeros(n, dtype=int)   # will contain the rankings of each suit
+        for i in range(n):
+            hand = self.hands[(i + last_player) % n]
+            hand.adjust_ranking(ranking)
+        return np.flip(np.argsort(ranking))
 
     def has_card(self, suit, this, other) -> Tuple[bool, bool]:
         """
@@ -617,8 +674,45 @@ def test_has_card():
 
     print("test_has_card: succeeded")
 
+def test_permutation():
+    """
+    Tests the ordering of suits when we have 002?/0?x1/2211??x0.
+    The order should be:
+    
+    * 0, 2, 1 for player 0
+    * 0, 1, 2 for player 1
+    * 2, 1, 0 for player 2
+    """
+    h0 = Hand()
+    h0.known_cards = Counter({0: 2, 2: 1})
+    h0.number_of_unknown_cards = 1
+    h1 = Hand()
+    h1.known_cards = Counter({0: 1})
+    h1.number_of_unknown_cards = 1
+    h1.known_voids = {1}
+    h2 = Hand()
+    h2.known_cards = Counter({2: 2, 1: 2})
+    h2.number_of_unknown_cards = 2
+    h2.known_voids = {0}
+    cards = Cards(3)
+    cards.hands = [h0, h1, h2]
+
+    p0 = cards.permutation(0)
+    p1 = cards.permutation(1)
+    p2 = cards.permutation(2)
+
+    # print(p0)
+    # print(p1)
+    # print(p2)
+
+    assert np.array_equal(p0, [0, 2, 1])
+    assert np.array_equal(p1, [0, 1, 2])
+    assert np.array_equal(p2, [2, 1, 0])
+    print("test_permutation: succeeded")
+
 if __name__ == "__main__":
     test_no_transfer()
     test_no_transfer_2()
     test_shake_down()
     test_has_card()
+    test_permutation()

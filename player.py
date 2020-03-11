@@ -4,6 +4,7 @@ from random import randrange
 from copy import deepcopy
 from cards import Cards
 from game import play
+from time import perf_counter
 
 class Player(ABC):
     """
@@ -259,6 +260,7 @@ class CleverPlayer(Player):
         return False
 
 def test_two_clever_players():
+    start = perf_counter()
     player = CleverPlayer(10, 2)
     players = [player, player]
     result = play(players)
@@ -266,19 +268,22 @@ def test_two_clever_players():
         print("Result is a draw")
     else:
         print(f"Win for player {result}")
+    print(f"elapsed time: {perf_counter() - start} seconds")
     assert result == -1, "test_two_clever_players: expecting a draw"
     print("----------------")
     print()
 
 def test_three_clever_players():
-    player = CleverPlayer(12, 2)
+    start = perf_counter()
+    player = CleverPlayer(6, 1)
     players = [player, player, player]
     result = play(players)
     if result == -1:
         print("Result is a draw")
     else:
         print(f"Win for player {result}")
-    assert result == -1, "test_two_clever_players: expecting a draw"
+    print(f"elapsed time: {perf_counter() - start} seconds")
+    assert result == 0, "test_three_clever_players: expecting a win for player 0"
     print("----------------")
     print()
 
