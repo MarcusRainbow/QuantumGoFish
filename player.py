@@ -221,7 +221,7 @@ class CleverPlayer(Player):
             return True
 
         # Allow the next player to play their best move
-        next_player = (other + 1) % cards.number_of_players()
+        next_player = copy_cards.next_player(this)
         copy_history = deepcopy(history)
         _, _, next_winner = self._evaluate_move(next_player, copy_cards, copy_history, self.max_has_depth - 1)
         
@@ -271,7 +271,7 @@ def test_two_clever_players():
     print()
 
 def test_three_clever_players():
-    player = CleverPlayer(10, 0)
+    player = CleverPlayer(12, 2)
     players = [player, player, player]
     result = play(players)
     if result == -1:

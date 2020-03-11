@@ -356,20 +356,37 @@ class Cards:
                 if total > 4:
                     return False
                 if total == 4:
+                    # If we know the whereabouts of all cards in a suit, we know that
+                    # none of the unknown cards are of that suit.
                     for hand in self.hands:
                         if hand.kill_unknown(suit):
                             any_changes = True
                 else:
-                    have_unknowns = 0
-                    with_unknowns = None
+                    # If we know that all the unknown cards of one suit are in one hand,
+                    # we can fill in all those cards in that hand.
+                    hands_with_unknowns = []
+                    number_of_unknown_cards = 0
                     for hand in self.hands:
                         if hand.number_of_unknown_cards > 0 and not suit in hand.known_voids:
-                            have_unknowns += 1
-                            with_unknowns = hand
-                    if have_unknowns == 1:
-                        if not with_unknowns.fill_unknown_suit(suit, total):
+                            hands_with_unknowns.append(hand)
+                            number_of_unknown_cards += hand.number_of_unknown_cards
+                    if len(hands_with_unknowns) == 1:
+                        if not hands_with_unknowns[0].fill_unknown_suit(suit, total):
                             return False
                         any_changes = True
+
+                    # If we know that the unknown cards in one suit only just fit in the
+                    # remaining unknown slots, even spanning multiple hands, we can fill in
+                    # those cards.
+                    else:
+                        remainder = 4 - total
+                        if number_of_unknown_cards < remainder:
+                            return False    # not enough unknown cards to fit this suit
+                        elif number_of_unknown_cards == remainder:
+                            for hand in hands_with_unknowns:
+                                if not hand.fill_unknown_suit(suit, 4 - hand.number_of_unknown_cards):
+                                    return False
+                            any_changes = True
         
             # If all the unknown cards in a hand are of just one suit,
             # force them to be known.
@@ -382,14 +399,12 @@ class Cards:
                 continue
             
             # If all the unknowns are in one hand, we must know what they are
-            have_unknowns = 0
-            with_unknowns = None
+            hands_with_unknowns = []
             for hand in self.hands:
                 if hand.number_of_unknown_cards > 0:
-                    have_unknowns += 1
-                    with_unknowns = hand
-            if have_unknowns == 1:
-                if not with_unknowns.fill_unknowns(totals):
+                    hands_with_unknowns.append(hand)
+            if len(hands_with_unknowns) == 1:
+                if not hands_with_unknowns[0].fill_unknowns(totals):
                     return False
                 any_changes = True
             
@@ -514,8 +529,7 @@ def test_no_transfer():
     # print("player 1 asks player 0 for a 1, who must say no")
     cards.no_transfer(1, 0, 1, False)
     # cards.show(-1)
-
-    print("shake_down")
+    # print("shake_down")
     cards.shake_down()
     # cards.show(-1)
 
@@ -578,7 +592,33 @@ def test_shake_down():
     assert cards.hands[2].known_cards == {2: 4, 1: 3}
     print("test_shake_down: succeeded")
 
+def test_has_card():
+    """
+    Given the cards 00??/01?/11??? is it legal for
+    player 2 to tell player 1 that he does not have any
+    of suit 2? (It cannot be as that leaves only 3 slots
+    for 2s.)
+    """
+    h0 = Hand()
+    h0.known_cards = Counter({0: 2})
+    h0.number_of_unknown_cards = 2
+    h1 = Hand()
+    h1.known_cards = Counter({0: 1, 1: 1})
+    h1.number_of_unknown_cards = 1
+    h2 = Hand()
+    h2.known_cards = Counter({1: 2})
+    h2.number_of_unknown_cards = 3
+    cards = Cards(3)
+    cards.hands = [h0, h1, h2]
+
+    # cards.show(-1)
+    forced, yes = cards.has_card(2, 2, 0)
+    assert forced and yes
+
+    print("test_has_card: succeeded")
+
 if __name__ == "__main__":
     test_no_transfer()
     test_no_transfer_2()
     test_shake_down()
+    test_has_card()
