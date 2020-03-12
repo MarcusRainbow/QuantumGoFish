@@ -35,5 +35,6 @@ def play(players) -> int:
             # if a position repeats, it forces a draw
             position = cards.position(i)
             if position in history:
+                cards.show(-1)
                 return -1
             history.add(position)

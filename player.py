@@ -5,6 +5,7 @@ from copy import deepcopy
 from cards import Cards
 from game import play
 from time import perf_counter
+import numpy as np
 
 class Player(ABC):
     """
@@ -118,6 +119,11 @@ class CleverPlayer(Player):
         self.max_depth = max_depth
         self.max_has_depth = max_has_depth
 
+        # dictionary of moves and their outcomes, matching the results of
+        # _evaluate_move. This cache is shared between all players that are
+        # represented by this instance of CleverPlayer
+        self._cached_moves = {}
+
     def next_move(self, this: int, cards: Cards, history: Set[int]) -> Tuple[int, int]:
         other, suit, _ = self._evaluate_move(this, cards, history, self.max_depth)
         return other, suit
@@ -126,6 +132,41 @@ class CleverPlayer(Player):
         """
         Like next_move, but it also returns a result, which says what 
         the final best-case result is as a result of this move.
+
+        Returns a tuple of (other_player, suit, result)
+        """
+        # see whether this move is in the cache
+        # TODO need to rotate the resulting suit, other and result, here and where we save it
+        permutation = cards.permutation(this)
+        pos = cards.position_given_permutation(permutation, this)
+        n = len(permutation)
+        if pos in self._cached_moves:
+            other_c, suit_c, result_c = self._cached_moves[pos]
+            other = (other_c + this) % n
+            result = result_c if result_c < 0 else (result_c + this) % n
+            suit = int(permutation[suit_c])
+
+            # # Just for debugging, check that the non-cached result is the same
+            # other_u, suit_u, result_u = self._evaluate_move_uncached(this, cards, history, depth)
+            # print(f"cache hit ({pos}): cards={cards} cached=({other_c}, {suit_c}, {result_c}) => ({other}, {suit}, {result}) uncached={other_u, suit_u, result_u} this={this} perm={permutation}")
+            # assert other_u == other and suit_u == suit and result_u == result
+
+            return other, suit, result
+
+        # find the best move and cache it
+        other, suit, result = self._evaluate_move_uncached(this, cards, history, depth)
+        other_c = (other - this) % n
+        result_c = result if result < 0 else (result - this) % n
+        found = np.where(permutation == suit)
+        assert len(found) == 1 and len(found[0]) == 1
+        suit_c = int(found[0][0])
+        self._cached_moves[pos] = (other_c, suit_c, result_c)
+        # print(f"cache save ({pos}): cards={cards} cached=({other_c}, {suit_c}, {result_c}) <= ({other}, {suit}, {result}) this={this} perm={permutation}")
+        return other, suit, result
+
+    def _evaluate_move_uncached(self, this: int, cards: Cards, history: Set[int], depth: int) -> Tuple[int, int, int]:
+        """
+        Like _evaluate_move, but not using the cache.
         """
         # try all the legal moves. (We know there must be some, as the player has some cards)
         legal_moves = cards.legal_moves(this)
@@ -261,7 +302,7 @@ class CleverPlayer(Player):
 
 def test_two_clever_players():
     start = perf_counter()
-    player = CleverPlayer(10, 2)
+    player = CleverPlayer(1000, 1000)
     players = [player, player]
     result = play(players)
     if result == -1:
@@ -275,7 +316,7 @@ def test_two_clever_players():
 
 def test_three_clever_players():
     start = perf_counter()
-    player = CleverPlayer(6, 1)
+    player = CleverPlayer(1000, 1000)
     players = [player, player, player]
     result = play(players)
     if result == -1:
@@ -283,7 +324,7 @@ def test_three_clever_players():
     else:
         print(f"Win for player {result}")
     print(f"elapsed time: {perf_counter() - start} seconds")
-    assert result == 0, "test_three_clever_players: expecting a win for player 0"
+    assert result == 1, "test_three_clever_players: expecting a win for player 1"
     print("----------------")
     print()
 
