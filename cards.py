@@ -27,24 +27,25 @@ class Hand:
 
     def show(self, is_next_player: bool):
         """
-        Write to stdout a representation of the hand
+        Write to stdout a representation of the hand, also showing the next player
         """
-        for suit in self.known_cards.elements():
-            # TODO: need fancier output if there are more than 10 suits
-            print(suit, end='')
-        
-        for _ in range(self.number_of_unknown_cards):
-            print("?", end='')
-
-        if self.known_voids:
-            print(" excluding ", end='')
-            for kv in self.known_voids:
-                print(kv, end='')
-        
+        print(self, end='')
         if is_next_player:
             print("   <<<< next player")
         else:
             print()
+
+    def __str__(self):
+        result = ""
+        for suit in self.known_cards.elements():
+            result += str(suit)
+        for _ in range(self.number_of_unknown_cards):
+            result += "?"
+        if self.known_voids:
+            result += "x"
+            for kv in self.known_voids:
+                result += str(kv)
+        return result
 
     def ensure_have(self, suit) -> bool:
         """
@@ -293,7 +294,16 @@ class Cards:
         """
         for i, hand in enumerate(self.hands):
             hand.show(i == next_player)
-        print()
+    
+    def __str__(self):
+        result = ""
+        first = True
+        for hand in self.hands:
+            if not first:
+                result += "/"
+            first = False
+            result += str(hand)
+        return result
 
     def transfer(self, suit, other, this, no_throw) -> bool:
         """
@@ -493,7 +503,13 @@ class Cards:
         # Handle permutation of suits by ordering them according to how
         # they appear in the hands.
         permutation = self.permutation(last_player)
-
+        return self.position_given_permutation(permutation, last_player)
+    
+    def position_given_permutation(self, permutation: np.ndarray, last_player: int) -> int:
+        """
+        Returns a representation of the current set of hands, using the
+        given permutation of suits to define the relative ordering.
+        """
         # Handle rotation of players by always starting from the last
         # player. This also means we do not need to encode the player
         # number.
@@ -537,12 +553,12 @@ class Cards:
         # are of the given suit, which means they must be of
         # the other suits. Check that this does not lead to
         # inconsistencies.
-        copy = deepcopy(self)
-        if not copy.no_transfer(suit, this, other, True) or not copy.shake_down():
+        copied = deepcopy(self)
+        if not copied.no_transfer(suit, this, other, True) or not copied.shake_down():
             return True, True   # forced because "no" results in inconsistency
 
-        copy = deepcopy(self)
-        if not copy.transfer(suit, this, other, True) or not copy.shake_down():
+        copied = deepcopy(self)
+        if not copied.transfer(suit, this, other, True) or not copied.shake_down():
             return True, False   # forced because "yes" results in inconsistency
   
         # genuinely unforced
@@ -668,7 +684,7 @@ def test_has_card():
     cards = Cards(3)
     cards.hands = [h0, h1, h2]
 
-    # cards.show(-1)
+    cards.show(-1)
     forced, yes = cards.has_card(2, 2, 0)
     assert forced and yes
 
