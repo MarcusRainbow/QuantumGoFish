@@ -136,7 +136,6 @@ class CleverPlayer(Player):
         Returns a tuple of (other_player, suit, result)
         """
         # see whether this move is in the cache
-        # TODO need to rotate the resulting suit, other and result, here and where we save it
         permutation = cards.permutation(this)
         pos = cards.position_given_permutation(permutation, this)
         n = len(permutation)
@@ -182,7 +181,16 @@ class CleverPlayer(Player):
                 copy_cards.transfer(suit, other, this, False)
             else:
                 copy_cards.no_transfer(suit, other, this, False)
-            winner = copy_cards.test_winner(this)
+            try:
+                winner = copy_cards.test_winner(this)
+            except:
+                print("-------------")
+                print(f"failed with has={has} suit={suit} other={other} this={this} moves={legal_moves}")
+                cards.show(this)
+                print("-------------")
+                copy_cards.show(copy_cards.next_player(this))
+                print("-------------")
+                raise Exception("The cards are logically inconsistent")
 
             # if this move wins immediately, play it
             if winner == this:
@@ -328,6 +336,21 @@ def test_three_clever_players():
     print("----------------")
     print()
 
+def test_four_clever_players():
+    start = perf_counter()
+    player = CleverPlayer(1000, 1000)
+    players = [player, player, player, player]
+    result = play(players)
+    if result == -1:
+        print("Result is a draw")
+    else:
+        print(f"Win for player {result}")
+    print(f"elapsed time: {perf_counter() - start} seconds")
+    assert result == 1, "test_four_clever_players: expecting a win for player 1"
+    print("----------------")
+    print()
+
 if __name__ == "__main__":
     test_two_clever_players()
     test_three_clever_players()
+    test_four_clever_players()
