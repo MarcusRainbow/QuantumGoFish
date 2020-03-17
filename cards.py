@@ -343,7 +343,7 @@ class Cards:
             assert False, f"Cannot reject {suit} as we know you have one"
         return True
   
-    def test_winner(self, last_player: int):
+    def test_winner(self, last_player: int) -> int:
         """
         Is there a winner? If so, return the number of
         the winner. If not, return -1
@@ -444,7 +444,44 @@ class Cards:
                 if not hands_with_unknowns[0].fill_unknowns(totals):
                     return False
                 any_changes = True
+
+            # redo the totals if there were any changes
+            if any_changes:
+                continue
             
+            # Considering each hand separately, if there are limited options
+            # for the unknown cards, we may be able to fill some or all in.
+            # e.g. for a 4 player game where the unaccounted ones and twos are:
+            # {0: 1, 1: 1}, ??x23 forces 01
+            # {0: 1, 1: 2}, ??x23 forces 11 or 01 i.e. 1?x23
+            #
+            # If there are N possible suits that the cards could be and there
+            # are M unknown cards, take the N possible combinations of N-1 suits
+            # and for each see whether there are fewer than M cards (say P). If
+            # so, there must be at least M - P cards in the remaining suit.
+            for suit in range(len(self.hands)):
+                if suit not in totals:
+                    totals[suit] = 0    # first fill in any complete blanks
+
+            for hand in self.hands:
+                if hand.number_of_unknown_cards > 1:
+                    possible = 0
+                    for suit, total in totals.items():
+                        if total < 4 and suit not in hand.known_voids:
+                            possible += 4 - total
+                    if possible < hand.number_of_unknown_cards:
+                        return False    # not enough possible cards to fit
+
+                    unknowns = hand.number_of_unknown_cards
+                    for suit, total in totals.items():
+                        if total < 4 and suit not in hand.known_voids:
+                            remaining = possible - (4 - total)
+                            if remaining < unknowns:
+                                min_suit = unknowns - remaining
+                                if not hand.fill_unknown_suit(suit, 4 - min_suit):
+                                    return False
+                                any_changes = True
+
             # TODO there may be other logical moves to clarify what we know
         return True
 
@@ -634,6 +671,30 @@ def test_no_transfer_2():
     assert transferred
     print("test_no_transfer_2: succeeded")
 
+def test_simple_shakedown():
+    """
+    Tests the cards 00???/??? for whether they are
+    consistent. Of course they are.
+    """
+    h0 = Hand()
+    h0.known_cards = Counter({0: 2})
+    h0.number_of_unknown_cards = 3
+    h1 = Hand()
+    h1.known_cards = Counter({})
+    h1.number_of_unknown_cards = 3
+    cards = Cards(2)
+    cards.hands = [h0, h1]
+
+    cards.show(-1)
+    print("shake_down")
+    ok = cards.shake_down()
+    cards.show(-1)
+
+    assert ok
+    assert cards.hands[0].known_cards == {0: 2, 1: 1}
+    assert cards.hands[1].known_cards == {1: 1}
+    print("test_simple_shake_down: succeeded")
+
 def test_shake_down():
     """
     Tests the case where we have 001/0?x1/22211??x0 and
@@ -690,6 +751,70 @@ def test_has_card():
 
     print("test_has_card: succeeded")
 
+def test_four_player_shakedown():
+    """
+    Are the cards 222??x0/1x23/000?/11330?x0 legal?
+    """
+    h0 = Hand()
+    h0.known_cards = Counter({2: 3})
+    h0.number_of_unknown_cards = 2
+    h0.known_voids = {0}
+    h1 = Hand()
+    h1.known_cards = Counter({1: 1})
+    h1.number_of_unknown_cards = 0
+    h1.known_voids = {2, 3}
+    h2 = Hand()
+    h2.known_cards = Counter({0: 3})
+    h2.number_of_unknown_cards = 1
+    h3 = Hand()
+    h3.known_cards = Counter({0: 1, 1: 2, 3: 2})
+    h3.number_of_unknown_cards = 2
+    cards = Cards(4)
+    cards.hands = [h0, h1, h2, h3]
+
+    cards.show(-1)
+    ok = cards.shake_down()
+    print("shakedown")
+    cards.show(-1)
+    assert ok
+
+    print("test_four_player_shakedown: succeeded")
+
+def test_four_player_test_winner():
+    """
+    Consider the hands:
+
+    222?x01
+    1x23
+    000??x23
+    1133??
+
+    This is a winner for player 2, because one of those ?s must be a
+    0 and the other must be a 1, as there are three each elsewhere.
+    Thus player 2 has four zeros.
+    """
+    h0 = Hand()
+    h0.known_cards = Counter({2: 3})
+    h0.number_of_unknown_cards = 1
+    h0.known_voids = {0, 1}
+    h1 = Hand()
+    h1.known_cards = Counter({1: 1})
+    h1.number_of_unknown_cards = 0
+    h1.known_voids = {2, 3}
+    h2 = Hand()
+    h2.known_cards = Counter({0: 3})
+    h2.number_of_unknown_cards = 2
+    h2.known_voids = {2, 3}
+    h3 = Hand()
+    h3.known_cards = Counter({1: 2, 3: 2})
+    h3.number_of_unknown_cards = 2
+    cards = Cards(4)
+    cards.hands = [h0, h1, h2, h3]
+
+    cards.show(-1)
+    winner = cards.test_winner(2)
+    assert winner == 2
+
 def test_permutation():
     """
     Tests the ordering of suits when we have 002?/0?x1/2211??x0.
@@ -727,8 +852,12 @@ def test_permutation():
     print("test_permutation: succeeded")
 
 if __name__ == "__main__":
+    test_simple_shakedown()
     test_no_transfer()
     test_no_transfer_2()
+    test_simple_shakedown()
     test_shake_down()
     test_has_card()
     test_permutation()
+    test_four_player_shakedown()
+    test_four_player_test_winner()
