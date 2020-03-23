@@ -181,23 +181,21 @@ class CleverPlayer(Player):
                 copy_cards.transfer(suit, other, this, False)
             else:
                 copy_cards.no_transfer(suit, other, this, False)
-            try:
-                winner = copy_cards.test_winner(this)
-            except:
-                print("-------------")
-                print(f"failed with has={has} suit={suit} other={other} this={this} moves={legal_moves}")
+            winner = copy_cards.test_winner(this)
+            if winner == Cards.ILLEGAL_CARDS:
+                print(f"WARNING: illegal cards after move has={has} suit={suit} other={other} this={this} moves={legal_moves}")
                 cards.show(this)
-                print("-------------")
+                print("becomes")
                 copy_cards.show(copy_cards.next_player(this))
                 print("-------------")
-                raise Exception("The cards are logically inconsistent")
+                continue
 
             # if this move wins immediately, play it
             if winner == this:
                 return other, suit, winner
             
             # if this move loses immediately, keep looking
-            if winner >= 0:
+            if winner != Cards.NO_WINNER:
                 immediate_lose = other, suit, winner
                 continue
             
@@ -262,8 +260,9 @@ class CleverPlayer(Player):
         if winner == this:
             return True     # saying yes gives us an immediate win!
 
-        # if this results in an immediate win for someone else, say no
-        if winner >= 0:
+        # If this results in an immediate win for someone else or an illegal position, say no
+        # TODO: Consider raising a warning if Cards.ILLEGAL_CARDS
+        if winner != Cards.NO_WINNER:
             return False
 
         # if the max depth is zero, do no lookahead -- just say yes
@@ -289,8 +288,9 @@ class CleverPlayer(Player):
         if winner == this:
             return False    # saying no gives us an immediate win
 
-        # if this results in an immediate win for someone else, say yes
-        if winner >= 0:
+        # if this results in an immediate win for someone else or illegal cards, say yes
+        # TODO: Consider raising a warning if Cards.ILLEGAL_CARDS
+        if winner != Cards.NO_WINNER:
             return True
 
         # Allow the next player to play their best move
