@@ -28,7 +28,10 @@ def play(players) -> int:
                 print(f"Player {other} has no cards of suit {suit}")
                 cards.no_transfer(suit, other, i, False)
             winner = cards.test_winner(i)
-            if winner >= 0:
+            if winner == Cards.ILLEGAL_CARDS:
+                cards.show(-1)
+                raise Exception("The cards are in an illegal state. All players lose")
+            if winner != Cards.NO_WINNER:
                 cards.show(-1)
                 return winner
 
