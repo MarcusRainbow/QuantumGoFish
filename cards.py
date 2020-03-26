@@ -1,4 +1,4 @@
-from collections import Counter
+from collections import Counter, defaultdict
 from typing import Tuple, List
 from copy import deepcopy
 import numpy as np
@@ -380,6 +380,9 @@ class Cards:
         Resolve any logical inferences that can be made on the cards.
         Returns True if the cards are logically consistent.
         """
+        len_hands = len(self.hands)
+        all_suits = {s for s in range(len_hands)}
+
         # Keep shaking until nothing else settles out
         any_changes = True
         while any_changes:
@@ -432,7 +435,7 @@ class Cards:
             # If all the unknown cards in a hand are of just one suit,
             # force them to be known.
             for hand in self.hands:
-                if hand.force_unknowns(len(self.hands)):
+                if hand.force_unknowns(len_hands):
                     any_changes = True
             
             # redo the totals if there were any changes
@@ -485,6 +488,75 @@ class Cards:
                                 if not hand.fill_unknown_suit(suit, 4 - min_suit):
                                     return False
                                 any_changes = True
+
+            # redo the totals if there were any changes
+            if any_changes:
+                continue
+
+            # Consider the case 0002?x1/3?x02/2??/11133?x02
+            #
+            # If player 2 requests a 1 or a 3, it makes 4 of these cards, which
+            # means that players 1 and 3 cannot have a 1/3. These players
+            # already exclude 0 and 2, which means they are forced to have
+            # a 3/1, making 5 of these.
+            #
+            # If there are two or more players who each exclude the
+            # same N - 2 items (for N being the number of players) and have at
+            # least one unknown item each, it means those two players must share
+            #
+            # Consider players 1 and 3, both of which exclude 0 and 2:
+            # 3?x02/11133?x02. We already have 3 threes and 3 ones, which means
+            # these players must have one of each. This means that both player
+            # 0 and player 2 must exclude 3 and 1, making the hand:
+            # 0002?x13/3?x02/2??x13/11133?x02.
+            #
+            # How do we detect this?
+            #
+            # 0002?x1/3?x02/2??/11133?x02
+            # what can fit in player 1's hole? 1 or 3 (only one left of each)
+            # what can fit in player 2's hole? 1 or 3 (only one left of each)
+            #
+            groups = {}
+            for player, hand in enumerate(self.hands):
+                group_len = len(hand.known_voids)
+                if hand.number_of_unknown_cards > 0 and group_len > 1:
+                    # Got a grouping of cards
+                    group = frozenset(all_suits.difference(hand.known_voids))
+                    if group in groups:
+                        groups[group].append(player)
+                    else:
+                        groups[group] = [player]
+            
+            # If there are any groupings that are common to multiple hands,
+            # check how many missing cards there are in the group and how many
+            # holes to put them in
+            for group, players in groups.items():
+                if len(players) > 1:
+
+                    # How many missing cards are there in this group?
+                    missing = len(group) * 4
+                    for suit, total in totals.items():
+                        if suit in group:
+                            missing -= total
+                    
+                    # How many holes to put them in, in the group players?
+                    holes = 0
+                    for player in players:
+                        holes += self.hands[player].number_of_unknown_cards
+                    
+                    # if there are too many holes for the missing cards, we
+                    # know something has gone wrong
+                    if missing < holes:
+                        return False
+
+                    # if the missing cards fill all the holes, we know there are
+                    # no cards in the group anywhere else
+                    if missing == holes:
+                        for player, hand in enumerate(self.hands):
+                            if player not in players:
+                                for suit in group:
+                                    if hand.kill_unknown(suit):
+                                        any_changes = True
 
             # TODO there may be other logical moves to clarify what we know
         return True
@@ -854,8 +926,10 @@ def test_four_player_exclusions():
     cards = Cards(4)
     cards.hands = [h0, h1, h2, h3]
 
+    print("test_four_player_exclusions")
     cards.show(-1)
     ok = cards.shake_down()
+    print("test_four_player_exclusions: after shake_down")
     cards.show(-1)
     assert ok
     assert 3 in cards.hands[2].known_voids
@@ -897,6 +971,38 @@ def test_permutation():
     assert np.array_equal(p2, [2, 1, 0])
     print("test_permutation: succeeded")
 
+def test_complex_shakedown():
+    """
+    We start with the hands 00111?x2/?x01/02223?/33?x01.
+    There are many restrictions implicit in this, and the
+    hands are equivalent to 000111/?x01/022231/33?/0x1
+    """
+    h0 = Hand()
+    h0.known_cards = Counter({0: 2, 1: 3})
+    h0.number_of_unknown_cards = 1
+    h0.known_voids = {1}
+    h1 = Hand()
+    h1.known_cards = Counter({})
+    h1.number_of_unknown_cards = 1
+    h1.known_voids = {0, 1}
+    h2 = Hand()
+    h2.known_cards = Counter({0: 1, 2: 3, 3: 1})
+    h2.number_of_unknown_cards = 1
+    h3 = Hand()
+    h3.known_cards = Counter({3: 2})
+    h3.number_of_unknown_cards = 1
+    h3.known_voids = {0, 1}
+    cards = Cards(4)
+    cards.hands = [h0, h1, h2, h3]
+
+    print("test_complex_shakedown")
+    cards.show(-1)
+    cards.shake_down()
+    print("test_complex_shakedown: after shakedown")
+    cards.show(-1)
+    assert cards.hands[0].number_of_unknown_cards == 0
+    assert cards.hands[2].number_of_unknown_cards == 0
+
 if __name__ == "__main__":
     test_simple_shakedown()
     test_no_transfer()
@@ -907,4 +1013,6 @@ if __name__ == "__main__":
     test_permutation()
     test_four_player_shakedown()
     test_four_player_test_winner()
-    # test_four_player_exclusions()     too hard to get working, just tolerate this error instead
+    test_four_player_exclusions()
+    test_complex_shakedown()
+    

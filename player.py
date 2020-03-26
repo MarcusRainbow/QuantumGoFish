@@ -1,8 +1,9 @@
 from abc import ABC
 from typing import List, Tuple, Set
 from random import randrange
+from collections import Counter
 from copy import deepcopy
-from cards import Cards
+from cards import Cards, Hand
 from game import play
 from time import perf_counter
 import numpy as np
