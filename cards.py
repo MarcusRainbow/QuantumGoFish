@@ -47,7 +47,7 @@ class Hand:
                 result += str(kv)
         return result
 
-    def ensure_have(self, suit) -> bool:
+    def ensure_have(self, suit: int) -> bool:
         """
         Make sure we have one of these cards. The player has just
         requested a card from this suit. Returns True if we were
@@ -73,7 +73,7 @@ class Hand:
         if self.number_of_unknown_cards == 0:
             self.known_voids.clear()
 
-    def ensure_have_not(self, suit) -> bool:
+    def ensure_have_not(self, suit: int) -> bool:
         """
         We know this hand does not contain this suit. For example the player has
         rejected a request for a card. Returns True if we were able to validate it.
@@ -83,7 +83,7 @@ class Hand:
         self.known_voids.add(suit)
         return True
 
-    def remove(self, suit) -> bool:
+    def remove(self, suit: int) -> bool:
         """
         Take one card of this suit away from the user. If it is a known card, remove that.
         If not, take it from the unknowns. Returns True if we were able to remove it
@@ -101,7 +101,7 @@ class Hand:
             self._remove_unknown()
             return True
 
-    def add(self, suit):
+    def add(self, suit: int):
         """
         Adds a card to this hand
         """
@@ -122,13 +122,13 @@ class Hand:
         """
         return self.number_of_unknown_cards == 0
 
-    def running_totals(self, totals):
+    def running_totals(self, totals: Counter):
         """
         Adds any known cards into running totals for all hands
         """
         totals.update(self.known_cards)
 
-    def kill_unknown(self, suit) -> bool:
+    def kill_unknown(self, suit: int) -> bool:
         """
         There are four known cards of this suit, so we know it is
         no longer unknown. Returns True if anything changed.
@@ -139,7 +139,7 @@ class Hand:
         else:
             return False
 
-    def force_unknowns(self, number_of_suits) -> bool:
+    def force_unknowns(self, number_of_suits: int) -> bool:
         """
         If we know so much about a void item that we can fix
         its suit, do so and return True.
@@ -162,7 +162,7 @@ class Hand:
         # For example, if there are two unknowns and we know we need
         # two different suits, we could set them both to one.
 
-    def is_legal(self, suit) -> bool:
+    def is_legal(self, suit: int) -> bool:
         """
         Can I legally ask for the given suit?
         """
@@ -174,7 +174,7 @@ class Hand:
             return False    # We know I have none of these
         return True
     
-    def has_card(self, suit) -> Tuple[bool, bool]:
+    def has_card(self, suit: int) -> Tuple[bool, bool]:
         """
         Does this hand definitely contain the given suit?
         Returns a tuple of [forced, yes/no]
@@ -202,7 +202,7 @@ class Hand:
         assert self.number_of_unknown_cards == 0
         return True
 
-    def fill_unknown_suit(self, suit, count) -> bool:
+    def fill_unknown_suit(self, suit: int, count: int) -> bool:
         """
         If only one of the hands has all the unknowns in
         a given suit, we can fill them in. Returns False if
@@ -245,7 +245,7 @@ class Hand:
         
         return pos
 
-    def adjust_ranking(self, rankings):
+    def adjust_ranking(self, rankings: np.ndarray):
         """
         Given an array of rankings for the different suits,
         adjust the rankings to make more common suits higher
@@ -493,29 +493,18 @@ class Cards:
             if any_changes:
                 continue
 
-            # Consider the case 0002?x1/3?x02/2??/11133?x02
+            # Consider the case 00111?x1/?x01/02223?/33?x01. Logic tells us that
+            # it can be shaken down to 000111/?x01/022231/33?x01, but what logic?
             #
-            # If player 2 requests a 1 or a 3, it makes 4 of these cards, which
-            # means that players 1 and 3 cannot have a 1/3. These players
-            # already exclude 0 and 2, which means they are forced to have
-            # a 3/1, making 5 of these.
+            # If we consider the pair of cards 2+3, we know that player 1 and player 3
+            # both have one unknown card that must belong to this pair. There are 
+            # already 3 twos and 3 threes, so there are only two remaining cards of
+            # this pair unaccounted for. They must therefore match the unknown
+            # cards in player 1 and player 3's hands. This means there are no other
+            # cards of this suit, and we can exclude them from hand 0 and hand 2.
             #
-            # If there are two or more players who each exclude the
-            # same N - 2 items (for N being the number of players) and have at
-            # least one unknown item each, it means those two players must share
-            #
-            # Consider players 1 and 3, both of which exclude 0 and 2:
-            # 3?x02/11133?x02. We already have 3 threes and 3 ones, which means
-            # these players must have one of each. This means that both player
-            # 0 and player 2 must exclude 3 and 1, making the hand:
-            # 0002?x13/3?x02/2??x13/11133?x02.
-            #
-            # How do we detect this?
-            #
-            # 0002?x1/3?x02/2??/11133?x02
-            # what can fit in player 1's hole? 1 or 3 (only one left of each)
-            # what can fit in player 2's hole? 1 or 3 (only one left of each)
-            #
+            # This gives 00111?x123/?x01/02223?x23/33?x01, which from the rule above
+            # can be further shaken down to 000111/?x01/022231/33?x01
             groups = {}
             for player, hand in enumerate(self.hands):
                 group_len = len(hand.known_voids)
@@ -616,7 +605,13 @@ class Cards:
         # Handle permutation of suits by ordering them according to how
         # they appear in the hands.
         permutation = self.permutation(last_player)
-        return self.position_given_permutation(permutation, last_player)
+        pos = self.position_given_permutation(permutation, last_player)
+
+        # now encode the player number, if we cannot make the assumption
+        # that all players make the same decisions
+        pos *= self.number_of_players()
+        pos += last_player
+        return pos
     
     def position_given_permutation(self, permutation: np.ndarray, last_player: int) -> int:
         """
@@ -973,9 +968,9 @@ def test_permutation():
 
 def test_complex_shakedown():
     """
-    We start with the hands 00111?x2/?x01/02223?/33?x01.
+    We start with the hands 00111?x1/?x01/02223?/33?x01.
     There are many restrictions implicit in this, and the
-    hands are equivalent to 000111/?x01/022231/33?/0x1
+    hands are equivalent to 000111/?x01/022231/33?x01
     """
     h0 = Hand()
     h0.known_cards = Counter({0: 2, 1: 3})

@@ -107,7 +107,7 @@ class CleverPlayer(Player):
     Implementation of Player that looks ahead, playing the best move
     available.
     """
-    def __init__(self, max_depth = 1000, max_has_depth = 10):
+    def __init__(self, max_depth = 1000, max_has_depth = 10, preferences = None):
         """
         The max_depth specifies how far ahead the player will look
         before making a move. For example, zero means only consider
@@ -116,9 +116,14 @@ class CleverPlayer(Player):
         The max_has_depth specifies how far ahead the player will look
         before saying whether they have a card. For example, zero means
         only worry about the immediate effect.
+
+        If preferences is specified, it states who the player wants to
+        win. It is a list of player numbers, starting with the player's
+        own number.
         """
         self.max_depth = max_depth
         self.max_has_depth = max_has_depth
+        self.preferences = preferences
 
         # dictionary of moves and their outcomes, matching the results of
         # _evaluate_move. This cache is shared between all players that are
@@ -175,6 +180,11 @@ class CleverPlayer(Player):
         out_of_depth = None
         lose = None
         immediate_lose = None
+        if self.preferences:
+            other_winners = [None] * len(self.preferences)
+        else:
+            other_winners = None
+
         for other, suit in legal_moves:
             copy_cards = deepcopy(cards)
             has = self.has_card(other, this, suit, copy_cards, history)
@@ -226,6 +236,11 @@ class CleverPlayer(Player):
             # If it results in a draw, record it
             if next_winner < 0:
                 draw = (other, suit, -1)
+            
+            # if there is a preference list, look along it
+            elif self.preferences and next_winner in self.preferences:
+                pref = self.preferences.index(next_winner)
+                other_winners[pref] = (other, suit, next_winner)
 
             # Record a losing move, in case we cannot win
             else:
@@ -238,6 +253,12 @@ class CleverPlayer(Player):
         # if we were unable to probe to the end of any moves, use one
         if out_of_depth is not None:
             return out_of_depth
+        
+        # is there a preference to which other players we want to win?
+        if other_winners:
+            for other_winner in other_winners:
+                if other_winner:
+                    return other_winner
 
         # an eventual lose is slightly better than an immediate one
         if lose is not None:
@@ -257,13 +278,13 @@ class CleverPlayer(Player):
         # try saying yes, which is generally the best option.
         copy_cards = deepcopy(cards)
         copy_cards.transfer(suit, this, other, False)
-        winner = copy_cards.test_winner(other)
-        if winner == this:
+        yes_winner = copy_cards.test_winner(other)
+        if yes_winner == this:
             return True     # saying yes gives us an immediate win!
 
         # If this results in an immediate win for someone else or an illegal position, say no
         # TODO: Consider raising a warning if Cards.ILLEGAL_CARDS
-        if winner != Cards.NO_WINNER:
+        if yes_winner != Cards.NO_WINNER:
             return False
 
         # if the max depth is zero, do no lookahead -- just say yes
@@ -273,38 +294,54 @@ class CleverPlayer(Player):
         # Allow the next player to play their best move
         next_player = copy_cards.next_player(this)
         copy_history = deepcopy(history)
-        _, _, next_winner = self._evaluate_move(next_player, copy_cards, copy_history, self.max_has_depth - 1)
+        _, _, next_yes_winner = self._evaluate_move(next_player, copy_cards, copy_history, self.max_has_depth - 1)
         
         # If this results in a win for us, say yes
-        if next_winner == this:
+        if next_yes_winner == this:
             return True
         
         # If it results in a draw, record it
-        yes_results_in_draw = next_winner < 0
+        yes_results_in_draw = next_yes_winner < 0
 
         # now try saying no
         copy_cards = deepcopy(cards)
         copy_cards.no_transfer(suit, this, other, False)
-        winner = copy_cards.test_winner(other)
-        if winner == this:
+        no_winner = copy_cards.test_winner(other)
+        if no_winner == this:
             return False    # saying no gives us an immediate win
 
         # if this results in an immediate win for someone else or illegal cards, say yes
         # TODO: Consider raising a warning if Cards.ILLEGAL_CARDS
-        if winner != Cards.NO_WINNER:
+        if no_winner != Cards.NO_WINNER:
             return True
 
         # Allow the next player to play their best move
         copy_history = deepcopy(history)
-        _, _, next_winner = self._evaluate_move(next_player, copy_cards, copy_history, self.max_has_depth - 1)
+        _, _, next_no_winner = self._evaluate_move(next_player, copy_cards, copy_history, self.max_has_depth - 1)
         
         # If this results in a win for us, say no
-        if next_winner == this:
+        if next_no_winner == this:
             return False
         
         # If yes would have resulted in a draw, then say yes
         if yes_results_in_draw:
             return True
+
+        # if there are any preferences for other players, choose the
+        # answer that would give them a win
+        if self.preferences:
+            if next_yes_winner in self.preferences:
+                yes_preference = self.preferences.index(next_yes_winner)
+            else:
+                yes_preference = len(self.preferences)
+            if next_no_winner in self.preferences:
+                no_preference = self.preferences.index(next_no_winner)
+            else:
+                no_preference = len(self.preferences)
+            if yes_preference < no_preference:
+                return True
+            elif no_preference < yes_preference:
+                return False
         
         # Nothing works -- just say no
         return False
@@ -337,6 +374,51 @@ def test_three_clever_players():
     print("----------------")
     print()
 
+def three_biased_players(preferences: List[List[int]]):
+    player0 = CleverPlayer(1000, 1000, preferences[0])
+    player1 = CleverPlayer(1000, 1000, preferences[1])
+    player2 = CleverPlayer(1000, 1000, preferences[2])
+    players = [player0, player1, player2]
+    result = play(players)
+    if result == -1:
+        print("Result is a draw")
+    else:
+        print(f"Win for player {result}")
+    return result
+
+def test_three_clever_biased_players():
+    """
+    See what happens if players 0 and 1 both prefer player 2 to win if they
+    cannot, and player 2 wants player 0.
+    """
+    start = perf_counter()
+    result = three_biased_players([[2], [2], [0]])
+    print(f"elapsed time: {perf_counter() - start} seconds")
+    assert result == 0, "test_three_clever_biased_players: expecting a win for player 0"
+    print("----------------")
+    print()
+
+def test_three_clever_players_of_all_types():
+    """
+    Try all combinations of preferences for the three player game
+    """
+    start = perf_counter()
+    for i0 in [1, 2]:
+        for i1 in [0, 2]:
+            for i2 in [0, 1]:
+                preferences = [[i0], [i1], [i2]]
+                result = three_biased_players(preferences)
+                print(f"With second preferences {preferences}: ", end='')
+                if result == -1:
+                    print("Result is a draw")
+                else:
+                    print(f"Win for player {result}")
+
+    print(f"elapsed time: {perf_counter() - start} seconds")
+    print("----------------")
+    print()
+
+
 def test_four_clever_players():
     start = perf_counter()
     player = CleverPlayer(1000, 1000)
@@ -354,4 +436,6 @@ def test_four_clever_players():
 if __name__ == "__main__":
     test_two_clever_players()
     test_three_clever_players()
-    test_four_clever_players()
+    test_three_clever_biased_players()
+    test_three_clever_players_of_all_types()
+    # test_four_clever_players()
