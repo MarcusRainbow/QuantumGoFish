@@ -107,7 +107,7 @@ class CleverPlayer(Player):
     Implementation of Player that looks ahead, playing the best move
     available.
     """
-    def __init__(self, max_depth = 1000, max_has_depth = 10, preferences = None, other_player = None):
+    def __init__(self, max_depth = 1000, max_has_depth = 10, preferences = None):
         """
         The max_depth specifies how far ahead the player will look
         before making a move. For example, zero means only consider
@@ -117,9 +117,8 @@ class CleverPlayer(Player):
         before saying whether they have a card. For example, zero means
         only worry about the immediate effect.
 
-        If preferences is specified, it states who the player wants to
-        win. It is a list of player numbers, starting with the player's
-        own number.
+        If preferences is specified, it states who the each of the 
+        players wants to win. It is a list of lists of player numbers.
 
         If other_player is supplied, we share its cache.
         """
@@ -129,12 +128,8 @@ class CleverPlayer(Player):
 
         # dictionary of moves and their outcomes, matching the results of
         # _evaluate_move. This cache is shared between all players that are
-        # represented by this instance of CleverPlayer. Alternatively, if
-        # other_player is supplied, we share its cache
-        if other_player:
-            self._cached_moves = other_player._cached_moves
-        else:
-            self._cached_moves = {}
+        # represented by this instance of CleverPlayer
+        self._cached_moves = {}
 
     def next_move(self, this: int, cards: Cards, history: Set[int]) -> Tuple[int, int]:
         other, suit, _ = self._evaluate_move(this, cards, history, self.max_depth)
@@ -196,8 +191,10 @@ class CleverPlayer(Player):
         lose = None
         immediate_lose = None
         if self.preferences:
-            other_winners = [None] * len(self.preferences)
+            preferences = self.preferences[this]
+            other_winners = [None] * len(preferences)
         else:
+            preferences = None
             other_winners = None
 
         for other, suit in legal_moves:
@@ -257,8 +254,8 @@ class CleverPlayer(Player):
                 draw = (other, suit, -1)
             
             # if there is a preference list, look along it
-            elif self.preferences and next_winner in self.preferences:
-                pref = self.preferences.index(next_winner)
+            elif preferences and next_winner in preferences:
+                pref = preferences.index(next_winner)
                 other_winners[pref] = (other, suit, next_winner)
 
             # Record a losing move, in case we cannot win
@@ -349,14 +346,15 @@ class CleverPlayer(Player):
         # if there are any preferences for other players, choose the
         # answer that would give them a win
         if self.preferences:
-            if next_yes_winner in self.preferences:
-                yes_preference = self.preferences.index(next_yes_winner)
+            preferences = self.preferences[this]
+            if next_yes_winner in preferences:
+                yes_preference = preferences.index(next_yes_winner)
             else:
-                yes_preference = len(self.preferences)
-            if next_no_winner in self.preferences:
-                no_preference = self.preferences.index(next_no_winner)
+                yes_preference = len(preferences)
+            if next_no_winner in preferences:
+                no_preference = preferences.index(next_no_winner)
             else:
-                no_preference = len(self.preferences)
+                no_preference = len(preferences)
             if yes_preference < no_preference:
                 return True
             elif no_preference < yes_preference:
@@ -394,10 +392,8 @@ def test_three_clever_players():
     print()
 
 def three_biased_players(preferences: List[List[int]]):
-    player0 = CleverPlayer(1000, 1000, preferences[0])
-    player1 = CleverPlayer(1000, 1000, preferences[1], player0)
-    player2 = CleverPlayer(1000, 1000, preferences[2], player0)
-    players = [player0, player1, player2]
+    player = CleverPlayer(1000, 1000, preferences)
+    players = [player, player, player]
     result = play(players)
     if result == -1:
         print("Result is a draw")
@@ -436,7 +432,6 @@ def test_three_clever_players_of_all_types():
     print(f"elapsed time: {perf_counter() - start} seconds")
     print("----------------")
     print()
-
 
 def test_four_clever_players():
     start = perf_counter()
