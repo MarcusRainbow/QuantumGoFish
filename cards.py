@@ -367,10 +367,13 @@ class Cards:
         if all_determined:
             return last_player
 
-        # Are there any hands with four of anything?
-        for i, hand in enumerate(self.hands):
-            if hand.has_four_of_a_kind():
-                return i
+        # Are there any hands with four of anything? We start with
+        # the current player.
+        n = len(self.hands)
+        for i in range(n):
+            player = (i + last_player) % n
+            if self.hands[player].has_four_of_a_kind():
+                return player
 
         # otherwise there are no winners yet
         return Cards.NO_WINNER
@@ -575,20 +578,29 @@ class Cards:
         by shake_down, which should add to the known_void list any
         suit that would have no legal reply.
         """
+        permutation = self.permutation(this)
+        return self.legal_moves_given_permutation(this, permutation)
+
+    def legal_moves_given_permutation(self, this: int, permutation: np.ndarray):
+        """
+        Returns a list of legal moves in a fixed order, depending
+        on the ordering of suits specified in permutations.
+        """
         moves = []
         suits = []
 
         # we can ask for any card that we own or possibly own
         this_hand = self.hands[this]
-        for i in range(len(self.hands)):
+        for i in permutation:
             if this_hand.is_legal(i):
                 suits.append(i)
 
         # we can ask any other player for a card, but not ourselves
-        for other in range(len(self.hands)):
-            if other != this:
-                for suit in suits:
-                    moves.append((other, suit))
+        n = len(self.hands)
+        for i in range(1, n):
+            other = (i + this) % n
+            for suit in suits:
+                moves.append((other, suit))
 
         return moves
 
