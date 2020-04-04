@@ -595,11 +595,34 @@ class Cards:
             if this_hand.is_legal(i):
                 suits.append(i)
 
+        # find a count of each of the suits
+        totals = Counter()
+        for hand in self.hands:
+            hand.running_totals(totals)
+
         # we can ask any other player for a card, but not ourselves
         n = len(self.hands)
         for i in range(1, n):
             other = (i + this) % n
             for suit in suits:
+
+                # try excluding requests for cards that we know the
+                # opponent cannot have. This also includes requests
+                # where there are already three cards known, and
+                # neither we nor the other player has one
+                forced, has = self.hands[other].has_card(suit)
+                if forced and not has:
+                    continue    # skip -- we know this player has none of these
+
+                # if the other player may not have the card, should we ask?
+                elif not forced:
+                    count = totals[suit]    # cards already known
+                    if suit not in this_hand.known_cards:
+                        count += 1          # add one if we are creating one in our hand
+                    if count >= 4:
+                        continue            # no room to add another one in the hand we are asking 
+
+                # OK to ask for this
                 moves.append((other, suit))
 
         return moves
@@ -607,38 +630,36 @@ class Cards:
     def position(self, last_player: int) -> int:
         """
         Returns a representation of the current set of hands as an integer,
-        so we can test whether the position repeats. The position function
+        so we can test whether the position repeats.
+        """
+        # For this function, we always use the same ordering of suits.
+        permutation = range(self.number_of_players())
+        return self.position_given_permutation(permutation, last_player)
+    
+    def position_given_permutation(self, permutation: np.ndarray, last_player: int) -> int:
+        """
+        Returns a representation of the current set of hands, using the
+        given permutation of suits to define the relative ordering.  The position function
         is carefully written to give the same result for different instances
         of symmetric positions. The following symmetries are handled:
 
         * Rotation of players (e.g. player 0 -> 1, 1 -> 2 and 2 -> 0)
         * Permutation of suits (e.g. swapping any two suits)
         """
-        # Handle permutation of suits by ordering them according to how
-        # they appear in the hands.
-        permutation = self.permutation(last_player)
-        pos = self.position_given_permutation(permutation, last_player)
-
-        # now encode the player number, if we cannot make the assumption
-        # that all players make the same decisions
-        pos *= self.number_of_players()
-        pos += last_player
-        return pos
-    
-    def position_given_permutation(self, permutation: np.ndarray, last_player: int) -> int:
-        """
-        Returns a representation of the current set of hands, using the
-        given permutation of suits to define the relative ordering.
-        """
         # Handle rotation of players by always starting from the last
         # player. This also means we do not need to encode the player
-        # number.
+        # number (though see below)
         pos = 0
         n = len(self.hands)
         assert last_player < n
         for i in range(n):
             hand = self.hands[(i + last_player) % n]
             pos = hand.position(pos, permutation)
+
+        # now encode the player number, if we cannot make the assumption
+        # that all players make the same decisions
+        pos *= n
+        pos += last_player
         return pos
 
     def permutation(self, last_player) -> List[int]:
