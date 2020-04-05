@@ -244,7 +244,14 @@ class CleverPlayer(Player):
             
             # if this move loses immediately, keep looking
             if winner != Cards.NO_WINNER:
-                immediate_lose = other, suit, winner
+                # if any immediate lose was to a player we want to win, add that
+                # to the list of other winners
+                if preferences and winner in preferences:
+                    pref = preferences.index(winner)
+                    other_winners[pref] = (other, suit, winner)
+                else:
+                    # otherwise just consider it a worst case
+                    immediate_lose = other, suit, winner
                 continue
             
             # if we have hit our maximum depth, assume this is a draw
@@ -498,15 +505,15 @@ def test_next_move():
     depth = 1000
     other, suit, result = player._evaluate_move(0, cards, history, depth)
     print(f"player 0 asks {other} for {suit} (result={result})")
-    assert result == 0
-    assert suit == 2
-    assert other == 1
+    assert result == 1
+    assert suit == 1
+    assert other == 2
 
-    # player 1 must say no, otherwise player 0 wins immediately
-    has = player.has_card(1, 0, 2, cards, history)
-    assert not has
+    # player 1 must say yes, as he has this card
+    has = player.has_card(2, 0, 1, cards, history)
+    assert has
 
-    cards.no_transfer(suit, other, 0, False)
+    cards.transfer(suit, other, 0, False)
     winner = cards.test_winner(0)
     assert winner == -1     # nobody has won yet
     print()
@@ -515,7 +522,7 @@ def test_next_move():
     # Now player 1 to move
     other, suit, result = player._evaluate_move(1, cards, history, depth)
     print(f"player 1 asks {other} for {suit} (result={result})")
-    assert result == 0
+    assert result == 1
     assert suit == 0
     assert other == 2
 
@@ -525,9 +532,8 @@ def test_next_move():
 
     cards.no_transfer(suit, other, 1, False)
     winner = cards.test_winner(1)
-    assert winner == -1     # nobody has won yet
-    print()
     cards.show(2)
+    assert winner == 1, "test_next_move: expecting a win for player 1"
     print("----------------")
     print()
 
