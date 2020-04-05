@@ -133,7 +133,8 @@ class CleverPlayer(Player):
         self._cached_moves = {}
 
     def next_move(self, this: int, cards: Cards, history: Set[int]) -> Tuple[int, int]:
-        other, suit, _ = self._evaluate_move(this, cards, history, self.max_depth)
+        other, suit, result = self._evaluate_move(this, cards, history, self.max_depth)
+        print(f"Result={result}")
         return other, suit
 
     def _evaluate_move(self, this: int, cards: Cards, history: Set[int], depth: int) -> Tuple[int, int, int]:
@@ -271,7 +272,7 @@ class CleverPlayer(Player):
             
             # If this results in a win for us, play this move
             if next_winner == this:
-                return other, suit, winner
+                return other, suit, next_winner
             
             # If it results in a draw, record it
             if next_winner < 0:
@@ -332,7 +333,7 @@ class CleverPlayer(Player):
             return True
 
         # Allow the next player to play their best move
-        next_player = copy_cards.next_player(this)
+        next_player = copy_cards.next_player(other)
         copy_history = deepcopy(history)
         _, _, next_yes_winner = self._evaluate_move(next_player, copy_cards, copy_history, self.max_has_depth - 1)
         
@@ -431,7 +432,7 @@ def test_three_clever_biased_players():
     cannot, and player 2 wants player 0.
     """
     start = perf_counter()
-    result = three_biased_players([[2], [2], [0]])
+    result = three_biased_players([[2], [0], [1]])
     print(f"elapsed time: {perf_counter() - start} seconds")
     # assert result == 2, "test_three_clever_biased_players: expecting a win for player 2"
     print("----------------")
@@ -473,42 +474,67 @@ def test_four_clever_players():
 
 def test_next_move():
     """
-    With history {1359256201, 4599097738, 28122892300, 17653942292, 17388062740, 17582622744, 406947864},
-    and cards 2??x2/2?x2/221100?x2, player 0 to play, what is the best next move?
-
-    Compare this with {1342245512, 44174741641, 1359256201, 275286032, 402786328}
-    and cards 221100?x0/0??x0/0?x0, player 1 to play, which ought to have the same result,
-    allowing for player rotation.
+    Starting from position 222?/000?/111? with player 0 to play, 
+    and second choice 2, 0, 1, what is the best move? What is the
+    best following move for player 2?
     """
     h0 = Hand()
-    h0.known_cards = Counter({2: 1})
-    h0.number_of_unknown_cards = 2
-    h0.known_voids = {2}
+    h0.known_cards = Counter({2: 3})
+    h0.number_of_unknown_cards = 1
     h1 = Hand()
-    h1.known_cards = Counter({2: 1})
+    h1.known_cards = Counter({0: 3})
     h1.number_of_unknown_cards = 1
-    h1.known_voids = {2}
     h2 = Hand()
-    h2.known_cards = Counter({2: 2, 1: 2, 0: 2})
+    h2.known_cards = Counter({1: 3})
     h2.number_of_unknown_cards = 1
-    h2.known_voids = {2}
-    h3 = Hand()
-    h3.known_cards = Counter({3: 2})
-    h3.number_of_unknown_cards = 1
-    h3.known_voids = {0, 1}
     cards = Cards(3)
     cards.hands = [h0, h1, h2]
 
-    this = 0
-    permutation = cards.permutation(this)
-    pos = cards.position_given_permutation(permutation, this)
-    print(f"test_next_move: cards={cards} pos={pos}")
-    assert pos == 17519659660
+    cards.show(0)
+
+    player = CleverPlayer(1000, 1000, [[2], [0], [1]])
+
+    history = set()
+    depth = 1000
+    other, suit, result = player._evaluate_move(0, cards, history, depth)
+    print(f"player 0 asks {other} for {suit} (result={result})")
+    assert result == 0
+    assert suit == 2
+    assert other == 1
+
+    # player 1 must say no, otherwise player 0 wins immediately
+    has = player.has_card(1, 0, 2, cards, history)
+    assert not has
+
+    cards.no_transfer(suit, other, 0, False)
+    winner = cards.test_winner(0)
+    assert winner == -1     # nobody has won yet
+    print()
+    cards.show(1)
+
+    # Now player 1 to move
+    other, suit, result = player._evaluate_move(1, cards, history, depth)
+    print(f"player 1 asks {other} for {suit} (result={result})")
+    assert result == 0
+    assert suit == 0
+    assert other == 2
+
+    # player 2 must say no, otherwise 1 wins immediately
+    has = player.has_card(2, 1, 0, cards, history)
+    assert not has
+
+    cards.no_transfer(suit, other, 1, False)
+    winner = cards.test_winner(1)
+    assert winner == -1     # nobody has won yet
+    print()
+    cards.show(2)
+    print("----------------")
+    print()
 
 if __name__ == "__main__":
-    # test_next_move()
+    test_next_move()
     test_two_clever_players()
     test_three_clever_players()
     test_three_clever_biased_players()
     test_three_clever_players_of_all_types()
-    # test_four_clever_players()
+    test_four_clever_players()
