@@ -133,16 +133,16 @@ class CleverPlayer(Player):
         self._cached_moves = {}
 
     def next_move(self, this: int, cards: Cards, history: Set[int]) -> Tuple[int, int]:
-        other, suit, result = self._evaluate_move(this, cards, history, self.max_depth)
+        other, suit, result, _ = self._evaluate_move(this, cards, history, self.max_depth)
         print(f"Result={result}")
         return other, suit
 
-    def _evaluate_move(self, this: int, cards: Cards, history: Set[int], depth: int) -> Tuple[int, int, int]:
+    def _evaluate_move(self, this: int, cards: Cards, history: Set[int], depth: int) -> Tuple[int, int, int, int]:
         """
         Like next_move, but it also returns a result, which says what 
         the final best-case result is as a result of this move.
 
-        Returns a tuple of (other_player, suit, result)
+        Returns a tuple of (other_player, suit, result, draw_position)
         """
         permutation = cards.permutation(this)
 
@@ -151,26 +151,12 @@ class CleverPlayer(Player):
 
         # see whether this move is in the cache
         pos = cards.position_given_permutation(permutation, this)
-        # if self.log_level < 0 and pos == 132524224923:
-        #     print(f"_evaluate_move: pos {pos}: permutation {permutation} history {history}")
-        #     self.log_level = 0
-        
-        # if self.log_level >= 0:
-        #     print(f"{' ' * self.log_level}_evaluate_move: cards {cards} this={this}")
-        #     self.log_level += 1
-
         n = len(permutation)
         if pos in self._cached_moves:
             other_c, suit_c, result_c = self._cached_moves[pos]
             other = (other_c + this) % n
             result = result_c if result_c < 0 else (result_c + this) % n
             suit = int(permutation[suit_c])
-
-            # if self.log_level >= 0:
-            #     self.log_level -= 1
-            #     print(f"{' ' * self.log_level}_evaluate_move: ask {other} for {suit}: {result} (cached)")
-            #     if self.log_level == 0 and pos == 132524224923:
-            #         self.log_level = -1
 
             # Just for debugging, check that the non-cached result is the same
             # Note that because of the way we check for repeats by looking in
@@ -184,30 +170,31 @@ class CleverPlayer(Player):
             # elif other_u != other or suit_u != suit or result_u != result:
             #     print(f"cache fail ({pos}): cards={cards} cached=({other_c}, {suit_c}, {result_c}) => ({other}, {suit}, {result}) uncached={other_u, suit_u, result_u} this={this} perm={permutation}")
 
-            return other, suit, result
+            # Always return -1 as the draw position of any cached move. Since
+            # the position was cached, we know that it is a genuine forcing draw,
+            # so any position will do, so long as it is not in the history. We
+            # know that -1 is not a valid position 
+            return other, suit, result, -1
 
         # find the best move and cache it
-        other, suit, result = self._evaluate_move_uncached(this, cards, history, depth, permutation)
+        other, suit, result, draw_position = self._evaluate_move_uncached(this, cards, history, depth, permutation)
         other_c = (other - this) % n
         result_c = result if result < 0 else (result - this) % n
         found = np.where(permutation == suit)
         assert len(found) == 1 and len(found[0]) == 1
         suit_c = int(found[0][0])
 
-        # Only save winning positions to the cache, not draws. (Draws
-        # depend on the history, which we are not encoding into pos.)
-        # if result_c >= 0:
-        self._cached_moves[pos] = (other_c, suit_c, result_c)
+        # Only save winning positions to the cache, as draws may only be a draw given
+        # the current history, rather than being indicative of a draw in general. However,
+        # if this is a draw and the position that caused the draw is not in our history,
+        # we can record it.
+        if result_c >= 0 or draw_position not in history:
+            self._cached_moves[pos] = (other_c, suit_c, result_c)
 
-        # if self.log_level >= 0:
-        #     self.log_level -= 1
-        #     print(f"{' ' * self.log_level}_evaluate_move: ask {other} for {suit}: {result} (uncached)")
-        #     if self.log_level == 0 and pos == 132524224923:
-        #         self.log_level = -1
+        return other, suit, result, draw_position
 
-        return other, suit, result
-
-    def _evaluate_move_uncached(self, this: int, cards: Cards, history: Set[int], depth: int, permutation: np.ndarray) -> Tuple[int, int, int]:
+    def _evaluate_move_uncached(self, this: int, cards: Cards, history: Set[int], 
+            depth: int, permutation: np.ndarray) -> Tuple[int, int, int, int]:
         """
         Like _evaluate_move, but not using the cache.
         """
@@ -243,7 +230,7 @@ class CleverPlayer(Player):
 
             # if this move wins immediately, play it
             if winner == this:
-                return other, suit, winner
+                return other, suit, winner, -1
             
             # if this move loses immediately, keep looking
             if winner != Cards.NO_WINNER:
@@ -251,26 +238,22 @@ class CleverPlayer(Player):
                 # to the list of other winners
                 if preferences and winner in preferences:
                     pref = preferences.index(winner)
-                    other_winners[pref] = (other, suit, winner)
+                    other_winners[pref] = (other, suit, winner, -1)
                 else:
                     # otherwise just consider it a worst case
-                    immediate_lose = other, suit, winner
+                    immediate_lose = (other, suit, winner, -1)
                 continue
             
             # if we have hit our maximum depth, assume this is a draw
             if depth == 0:
-                out_of_depth = (other, suit, -1)
+                out_of_depth = (other, suit, -1, -1)
                 continue
 
             # if this move results in a draw, remember it
             next_player = copy_cards.next_player(this)
             position = copy_cards.position_given_permutation(permutation, next_player)
-            # if position == 34401731532:
-            #     print(f"testing for draw, with cards {copy_cards} and this={this}")
             if position in history:
-                # if position == 34401731532:
-                #     print(f"draw at position {position} with cards {copy_cards} and this={this}")
-                draw = (other, suit, -1)
+                draw = (other, suit, -1, position)
                 continue        # stop looking if we have hit a draw                
 
             # remember this position, so we recognise a subsequent draw
@@ -278,24 +261,24 @@ class CleverPlayer(Player):
             copy_history.add(position)
 
             # Allow the next player to play their best move
-            _, _, next_winner = self._evaluate_move(next_player, copy_cards, copy_history, depth - 1)
+            _, _, next_winner, draw_position = self._evaluate_move(next_player, copy_cards, copy_history, depth - 1)
             
             # If this results in a win for us, play this move
             if next_winner == this:
-                return other, suit, next_winner
+                return other, suit, next_winner, -1
             
             # If it results in a draw, record it
             if next_winner < 0:
-                draw = (other, suit, -1)
+                draw = (other, suit, -1, draw_position)
             
             # if there is a preference list, look along it
             elif preferences and next_winner in preferences:
                 pref = preferences.index(next_winner)
-                other_winners[pref] = (other, suit, next_winner)
+                other_winners[pref] = (other, suit, next_winner, 0)
 
             # Record a losing move, in case we cannot win
             else:
-                lose = (other, suit, next_winner)
+                lose = (other, suit, next_winner, -1)
 
         # force a draw if we can
         if draw is not None:
@@ -354,7 +337,7 @@ class CleverPlayer(Player):
         else:
             # Convert the yes_winner into an eventual winner after looking forward
             copy_history = deepcopy(history)
-            _, _, yes_winner = self._evaluate_move(next_player, copy_cards, copy_history, self.max_has_depth - 1)
+            _, _, yes_winner, _ = self._evaluate_move(next_player, copy_cards, copy_history, self.max_has_depth - 1)
             
             # If this results in a win for us, say yes
             if yes_winner == this:
@@ -374,7 +357,7 @@ class CleverPlayer(Player):
         else:
             # Allow the next player to play their best move
             copy_history = deepcopy(history)
-            _, _, no_winner = self._evaluate_move(next_player, copy_cards, copy_history, self.max_has_depth - 1)
+            _, _, no_winner, _ = self._evaluate_move(next_player, copy_cards, copy_history, self.max_has_depth - 1)
         
             # If this results in a win for us, say no
             if no_winner == this:
@@ -514,7 +497,7 @@ def test_next_move():
 
     history = set()
     depth = 1000
-    other, suit, result = player._evaluate_move(0, cards, history, depth)
+    other, suit, result, _ = player._evaluate_move(0, cards, history, depth)
     print(f"player 0 asks {other} for {suit} (result={result})")
     assert result == 1
     assert suit == 1
@@ -531,7 +514,7 @@ def test_next_move():
     cards.show(1)
 
     # Now player 1 to move
-    other, suit, result = player._evaluate_move(1, cards, history, depth)
+    other, suit, result, _ = player._evaluate_move(1, cards, history, depth)
     print(f"player 1 asks {other} for {suit} (result={result})")
     assert result == 1
     assert suit == 0
