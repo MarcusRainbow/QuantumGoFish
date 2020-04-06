@@ -172,18 +172,17 @@ class CleverPlayer(Player):
             #     if self.log_level == 0 and pos == 132524224923:
             #         self.log_level = -1
 
-            # # Just for debugging, check that the non-cached result is the same
-            # # Note that because of the way we check for repeats by looking in
-            # # the history, it is possible that a draw may be possible via more
-            # # than one route, and different drawing moves may result from
-            # # different histories. We therefore do not worry if the moves are
-            # # different but both result in a draw.
-            # if pos == 132524224923:
-            #     other_u, suit_u, result_u = self._evaluate_move_uncached(this, cards, history, depth, permutation)
-            #     if result == -1 and result_u == -1:
-            #         pass    # don't worry about the moves if both result in a draw
-            #     elif other_u != other or suit_u != suit or result_u != result:
-            #         print(f"cache fail ({pos}): cards={cards} cached=({other_c}, {suit_c}, {result_c}) => ({other}, {suit}, {result}) uncached={other_u, suit_u, result_u} this={this} perm={permutation}")
+            # Just for debugging, check that the non-cached result is the same
+            # Note that because of the way we check for repeats by looking in
+            # the history, it is possible that a draw may be possible via more
+            # than one route, and different drawing moves may result from
+            # different histories. We therefore do not worry if the moves are
+            # different but both result in a draw.
+            # other_u, suit_u, result_u = self._evaluate_move_uncached(this, cards, history, depth, permutation)
+            # if result == -1 and result_u == -1:
+            #     pass    # don't worry about the moves if both result in a draw
+            # elif other_u != other or suit_u != suit or result_u != result:
+            #     print(f"cache fail ({pos}): cards={cards} cached=({other_c}, {suit_c}, {result_c}) => ({other}, {suit}, {result}) uncached={other_u, suit_u, result_u} this={this} perm={permutation}")
 
             return other, suit, result
 
@@ -194,6 +193,10 @@ class CleverPlayer(Player):
         found = np.where(permutation == suit)
         assert len(found) == 1 and len(found[0]) == 1
         suit_c = int(found[0][0])
+
+        # Only save winning positions to the cache, not draws. (Draws
+        # depend on the history, which we are not encoding into pos.)
+        # if result_c >= 0:
         self._cached_moves[pos] = (other_c, suit_c, result_c)
 
         # if self.log_level >= 0:
@@ -330,26 +333,32 @@ class CleverPlayer(Player):
         if yes_winner == this:
             return True     # saying yes gives us an immediate win!
 
-        # If this results in an immediate win for someone else or an illegal position, say no
+        # if the max depth is zero, do no lookahead -- just say yes
+        # unless it results in an immediate lose
+        if self.max_has_depth == 0:
+            return yes_winner != Cards.NO_WINNER
+
+        if self.preferences:
+            preferences = self.preferences[this]
+        else:
+            preferences = None
+
+        next_player = copy_cards.next_player(other)
+
+        # If this results in an immediate win for someone else or an illegal position,
+        # say no (unless we are thinking about second preferences)
         # TODO: Consider raising a warning if Cards.ILLEGAL_CARDS
         if yes_winner != Cards.NO_WINNER:
-            return False
-
-        # if the max depth is zero, do no lookahead -- just say yes
-        if self.max_has_depth == 0:
-            return True
-
-        # Allow the next player to play their best move
-        next_player = copy_cards.next_player(other)
-        copy_history = deepcopy(history)
-        _, _, next_yes_winner = self._evaluate_move(next_player, copy_cards, copy_history, self.max_has_depth - 1)
-        
-        # If this results in a win for us, say yes
-        if next_yes_winner == this:
-            return True
-        
-        # If it results in a draw, record it
-        yes_results_in_draw = next_yes_winner < 0
+            if not preferences or yes_winner not in preferences:
+                return False
+        else:
+            # Convert the yes_winner into an eventual winner after looking forward
+            copy_history = deepcopy(history)
+            _, _, yes_winner = self._evaluate_move(next_player, copy_cards, copy_history, self.max_has_depth - 1)
+            
+            # If this results in a win for us, say yes
+            if yes_winner == this:
+                return True
 
         # now try saying no
         copy_cards = deepcopy(cards)
@@ -359,32 +368,35 @@ class CleverPlayer(Player):
             return False    # saying no gives us an immediate win
 
         # if this results in an immediate win for someone else or illegal cards, say yes
-        # TODO: Consider raising a warning if Cards.ILLEGAL_CARDS
         if no_winner != Cards.NO_WINNER:
-            return True
-
-        # Allow the next player to play their best move
-        copy_history = deepcopy(history)
-        _, _, next_no_winner = self._evaluate_move(next_player, copy_cards, copy_history, self.max_has_depth - 1)
+            if not preferences or no_winner not in preferences:
+                return True
+        else:
+            # Allow the next player to play their best move
+            copy_history = deepcopy(history)
+            _, _, no_winner = self._evaluate_move(next_player, copy_cards, copy_history, self.max_has_depth - 1)
         
-        # If this results in a win for us, say no
-        if next_no_winner == this:
-            return False
+            # If this results in a win for us, say no
+            if no_winner == this:
+                return False
         
         # If yes would have resulted in a draw, then say yes
-        if yes_results_in_draw:
+        if yes_winner < 0:
             return True
+
+        # If no would have resulted in a draw, then say no
+        if no_winner < 0:
+            return False
 
         # if there are any preferences for other players, choose the
         # answer that would give them a win
-        if self.preferences:
-            preferences = self.preferences[this]
-            if next_yes_winner in preferences:
-                yes_preference = preferences.index(next_yes_winner)
+        if preferences:
+            if yes_winner in preferences:
+                yes_preference = preferences.index(yes_winner)
             else:
                 yes_preference = len(preferences)
-            if next_no_winner in preferences:
-                no_preference = preferences.index(next_no_winner)
+            if no_winner in preferences:
+                no_preference = preferences.index(no_winner)
             else:
                 no_preference = len(preferences)
             if yes_preference < no_preference:
@@ -435,13 +447,12 @@ def three_biased_players(preferences: List[List[int]]):
 
 def test_three_clever_biased_players():
     """
-    See what happens if players 0 and 1 both prefer player 2 to win if they
-    cannot, and player 2 wants player 0.
+    See what happens if each player wants the previous player to win.
     """
     start = perf_counter()
     result = three_biased_players([[2], [0], [1]])
     print(f"elapsed time: {perf_counter() - start} seconds")
-    # assert result == 2, "test_three_clever_biased_players: expecting a win for player 2"
+    assert result == -1, "test_three_clever_biased_players: expecting a draw"
     print("----------------")
     print()
 
