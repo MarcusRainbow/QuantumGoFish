@@ -670,6 +670,8 @@ class Cards:
 
         * Rotation of players (e.g. player 0 -> 1, 1 -> 2 and 2 -> 0)
         * Permutation of suits (e.g. swapping any two suits)
+
+        Note that position is always an integer greater or equal to zero.
         """
         # Handle rotation of players by always starting from the last
         # player. This also means we do not need to encode the player
