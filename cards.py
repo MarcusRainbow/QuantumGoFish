@@ -196,25 +196,24 @@ class Hand:
         """
         for suit, count in totals.items():
             if count < 4:
-                if not self.fill_unknown_suit(suit, count):
+                if not self.fill_some_unknowns(suit, 4 - count):
                     return False
         
         assert self.number_of_unknown_cards == 0
         return True
 
-    def fill_unknown_suit(self, suit: int, count: int) -> bool:
+    def fill_some_unknowns(self, suit: int, count: int) -> bool:
         """
-        If only one of the hands has all the unknowns in
-        a given suit, we can fill them in. Returns False if
+        Fill in some of the unknowns in a given hand with the
+        given suit. Returns False if
         it cannot be done.
         """
-        assert count < 4
-        remaining = 4 - count
-        if self.number_of_unknown_cards < remaining:
+        assert count <= 4
+        if self.number_of_unknown_cards < count:
             return False
         assert suit not in self.known_voids
-        self.number_of_unknown_cards -= remaining
-        self.known_cards[suit] += remaining
+        self.number_of_unknown_cards -= count
+        self.known_cards[suit] += count
         return True
 
     def position(self, pos: int, permutation: np.ndarray) -> int:
@@ -418,7 +417,7 @@ class Cards:
                             hands_with_unknowns.append(hand)
                             number_of_unknown_cards += hand.number_of_unknown_cards
                     if len(hands_with_unknowns) == 1:
-                        if not hands_with_unknowns[0].fill_unknown_suit(suit, total):
+                        if not hands_with_unknowns[0].fill_some_unknowns(suit, 4 - total):
                             return False
                         any_changes = True
 
@@ -431,7 +430,7 @@ class Cards:
                             return False    # not enough unknown cards to fit this suit
                         elif number_of_unknown_cards == remainder:
                             for hand in hands_with_unknowns:
-                                if not hand.fill_unknown_suit(suit, 4 - hand.number_of_unknown_cards):
+                                if not hand.fill_some_unknowns(suit, hand.number_of_unknown_cards):
                                     return False
                             any_changes = True
         
@@ -473,6 +472,10 @@ class Cards:
                 if suit not in totals:
                     totals[suit] = 0    # first fill in any complete blanks
 
+            # Consider the cards: 2???/0???x2/????x0.
+            # Player 2 must be holding a 1, because he can have at most 3
+            # 2's and can't have any 0's
+
             for hand in self.hands:
                 if hand.number_of_unknown_cards > 1:
                     possible = 0
@@ -488,9 +491,31 @@ class Cards:
                             remaining = possible - (4 - total)
                             if remaining < unknowns:
                                 min_suit = unknowns - remaining
-                                if not hand.fill_unknown_suit(suit, 4 - min_suit):
+                                if not hand.fill_some_unknowns(suit, min_suit):
                                     return False
                                 any_changes = True
+
+            # redo the totals if there were any changes
+            if any_changes:
+                continue
+
+            # Consider the case 2211?/00??x1/???. If you think about ones here,
+            # there are four possible unknowns that could be ones, and two ones
+            # whose position is unknown. Clearly two of these unknowns must be
+            # ones, so player 2 must have one of them.
+            for suit, total in totals.items():
+                if total > 2:
+                    continue
+                slots = 0
+                for hand in self.hands:
+                    if suit not in hand.known_voids:
+                        slots += hand.number_of_unknown_cards
+                for hand in self.hands:
+                    if suit not in hand.known_voids:
+                        other_slots = slots - hand.number_of_unknown_cards
+                        if other_slots < total:
+                            if not hand.fill_some_unknowns(suit, total - other_slots):
+                                return False
 
             # redo the totals if there were any changes
             if any_changes:
@@ -739,13 +764,13 @@ def test_no_transfer():
     cards = Cards(3)
     cards.hands = [h0, h1, h2]
 
-    # cards.show(1)
-    # print("player 1 asks player 0 for a 1, who must say no")
+    cards.show(1)
+    print("player 1 asks player 0 for a 1, who must say no")
     cards.no_transfer(1, 0, 1, False)
-    # cards.show(-1)
-    # print("shake_down")
+    cards.show(-1)
+    print("shake_down")
     cards.shake_down()
-    # cards.show(-1)
+    cards.show(-1)
 
     assert cards.hands[0].known_cards == {0: 3}
     assert cards.hands[1].known_cards == {2: 2, 1: 1}
@@ -854,6 +879,62 @@ def test_has_card():
     assert forced and yes
 
     print("test_has_card: succeeded")
+
+def test_three_player_shakedown():
+    """
+    Do a shakedown of 2211?x0/00??x1/???. Player 2 must be
+    holding at least one 1, because player 1 has none, and
+    player 0 accounts for no more than 3 of them.
+    """
+    h0 = Hand()
+    h0.known_cards = Counter({2: 2, 1: 2})
+    h0.number_of_unknown_cards = 1
+    h0.known_voids = {0}
+    h1 = Hand()
+    h1.known_cards = Counter({0: 2})
+    h1.number_of_unknown_cards = 2
+    h1.known_voids = {1}
+    h2 = Hand()
+    h2.number_of_unknown_cards = 3
+    cards = Cards(3)
+    cards.hands = [h0, h1, h2]
+
+    cards.show(-1)
+    ok = cards.shake_down()
+    print("shakedown")
+    cards.show(-1)
+    assert ok
+    assert cards.hands[2].known_cards[1] == 1
+
+    print("test_three_player_shakedown: succeeded")
+
+def test_three_player_shakedown_2():
+    """
+    Do a shakedown of 2???/0???x2/????x0.
+    Player 2 must be holding a 1, because he can have at most 3
+    2's and can't have any 0's.
+    """
+    h0 = Hand()
+    h0.known_cards = Counter({2: 1})
+    h0.number_of_unknown_cards = 3
+    h1 = Hand()
+    h1.known_cards = Counter({0: 1})
+    h1.number_of_unknown_cards = 3
+    h1.known_voids = {2}
+    h2 = Hand()
+    h2.number_of_unknown_cards = 4
+    h2.known_voids = {0}
+    cards = Cards(3)
+    cards.hands = [h0, h1, h2]
+
+    cards.show(-1)
+    ok = cards.shake_down()
+    print("shakedown")
+    cards.show(-1)
+    assert ok
+    assert cards.hands[2].known_cards[1] == 1
+
+    print("test_three_player_shakedown_2: succeeded")
 
 def test_four_player_shakedown():
     """
@@ -1039,6 +1120,8 @@ if __name__ == "__main__":
     test_shake_down()
     test_has_card()
     test_permutation()
+    test_three_player_shakedown()
+    test_three_player_shakedown_2()
     test_four_player_shakedown()
     test_four_player_test_winner()
     test_four_player_exclusions()
