@@ -9,7 +9,7 @@ use std::collections::HashSet;
     than the number of players). If there is a draw, the function
     returns -1.
 */
-pub fn play(players: &[usize], player_instances: &mut [&mut Player]) -> i64 {
+pub fn play(players: &[usize], player_instances: &mut [Box<Player>]) -> i64 {
     let number_of_players = players.len();
     assert!(player_instances.len() <= number_of_players);
 

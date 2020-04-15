@@ -16,6 +16,11 @@ pub trait Player {
         Returns true if the player has this card.
     */
     fn has_card(&mut self, this: usize, other: usize, suit: i8, cards: &Cards, history: &HashSet<i64>) -> bool;
+
+    /**
+        Returns information about this object
+     */
+    fn info(&self) -> String;
 }
 
 /** 
@@ -28,21 +33,24 @@ impl HumanPlayer {
     pub fn new() -> HumanPlayer {
         HumanPlayer {}
     }
+
+    pub fn ask_for(msg: &str, this: usize) -> String {
+        println!("{}> {}", this, msg);
+        let input = io::stdin();
+        return input.lock().lines().next().expect("no input").expect("failed input");
+    }
 }
 
 impl Player for HumanPlayer {
     fn next_move(&mut self, this: usize, cards: &Cards, _history: &HashSet<i64>) -> (usize, i8) {
-        let input = io::stdin();
         loop {
-            print!("Which player would you like to ask? ");
-            let other_input = input.lock().lines().next().expect("no input").expect("failed input");
-            print!("Which suit would you like to ask for? ");
-            let suit_input = input.lock().lines().next().expect("no input").expect("failed input");
+            let other_input = Self::ask_for("Which player would you like to ask? ", this);
+            let suit_input = Self::ask_for("Which suit would you like to ask for? ", this);
             if other_input == "q" || other_input == "Q" || suit_input == "q" || suit_input == "Q" {
                 panic!("Quit");
             }
-            let other = usize::from_str_radix(&other_input, 10).unwrap();
-            let suit = i8::from_str_radix(&suit_input, 10).unwrap();
+            let other = usize::from_str_radix(&other_input, 10).unwrap_or(usize::max_value());
+            let suit = i8::from_str_radix(&suit_input, 10).unwrap_or(-1);
             if cards.legal(other, suit, this, true) {
                 return (other, suit);
             }
@@ -60,10 +68,8 @@ impl Player for HumanPlayer {
             return has;
         }
 
-        let input = io::stdin();
         loop {
-            println!("Do you have a card of suit {}?", suit);
-            let reply = input.lock().lines().next().expect("no input").expect("failed input");
+            let reply = Self::ask_for(&format!("Do you have a card of suit {}?", suit), this);
             if reply == "Y" || reply == "y" {
                 return true;
             } else {
@@ -73,6 +79,9 @@ impl Player for HumanPlayer {
             }
             println!("Y or N");
         }
+    }
+    fn info(&self) -> String {
+        "no info".to_string()
     }
 }
 
@@ -111,10 +120,6 @@ impl CleverPlayer {
             symmetric: symmetric,
             _cached_moves: HashMap::new(),
         }
-    }
-
-    pub fn cache_size(&self) -> usize {
-        return self._cached_moves.len();
     }
 
     /** 
@@ -340,57 +345,83 @@ impl Player for CleverPlayer {
         }
         return false;
     }
+
+    fn info(&self) -> String {
+        let len = self._cached_moves.len();
+        return format!("cache size: {}", len);
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{CleverPlayer, Player};
+    use super::{CleverPlayer, HumanPlayer, Player};
     use game::play;
+    use std::time::Instant;
+    
+    #[test]
+    pub fn test_two_human_players() {
+        let human: Box<Player> = Box::new(HumanPlayer::new());
+        {
+            let mut players = vec![human];
+            let result = play(&[0, 0], &mut players);
+            if result == -1 {
+                println!("Result is a draw");
+            } else {
+                println!("Win for player {}", result);
+            }
+            assert!(result == -1, "test_two_human_players: expecting a draw");
+        }
+        // println!("{}", clever.info());
+        println!("----------------");
+        println!();
+    }
 
     #[test]
     pub fn test_two_clever_players() {
-        let mut clever = CleverPlayer::new(1000, 1000, vec![], true);
-        let player = &mut clever as &mut Player;
-        let mut players = vec![player];
-        let result = play(&[0, 0], &mut players);
-        if result == -1 {
-            println!("Result is a draw");
-        } else {
-            println!("Win for player {}", result);
+        let clever: Box<Player> = Box::new(CleverPlayer::new(1000, 1000, vec![], true));
+        {
+            let mut players = vec![clever];
+            let result = play(&[0, 0], &mut players);
+            if result == -1 {
+                println!("Result is a draw");
+            } else {
+                println!("Win for player {}", result);
+            }
+            assert!(result == -1, "test_two_clever_players: expecting a draw");
         }
-        //println!("number of entries in cache: {}", clever.cache_size());
-        assert!(result == -1, "test_two_clever_players: expecting a draw");
+        // println!("{}", clever.info());
         println!("----------------");
         println!();
     }
     
     #[test]
     pub fn test_three_clever_players() {
-        let mut clever = CleverPlayer::new(1000, 1000, vec![], true);
-        let player = &mut clever as &mut Player;
-        let mut players = vec![player];
+        let clever: Box<Player> = Box::new(CleverPlayer::new(1000, 1000, vec![], true));
+        let mut players = vec![clever];
         let result = play(&[0, 0, 0], &mut players);
         if result == -1 {
             println!("Result is a draw");
         } else {
             println!("Win for player {}", result);
         }
-        // println!("number of entries in cache: {}", clever.cache_size());
+        // println!("{}", clever.info());
         println!("----------------");
         println!();
     }
     
     pub fn three_biased_players(preferences: Vec<Vec<usize>>, symmetric: bool) -> i64 {
-        let mut clever = CleverPlayer::new(1000, 1000, preferences, symmetric);
-        let player = &mut clever as &mut Player;
-        let mut players = vec![player];
-        let result = play(&[0, 0, 0], &mut players);
-        if result == -1 {
-            println!("Result is a draw");
-        } else {
-            println!("Win for player {}", result);
+        let result;
+        let clever: Box<Player> = Box::new(CleverPlayer::new(1000, 1000, preferences, symmetric));
+        {
+            let mut players = vec![clever];
+            result = play(&[0, 0, 0], &mut players);
+            if result == -1 {
+                println!("Result is a draw");
+            } else {
+                println!("Win for player {}", result);
+            }
         }
-        // println!("number of entries in cache: {}", clever.cache_size());
+        // println!("{}", clever.info());
         return result;
     }
     
@@ -429,22 +460,101 @@ mod tests {
     #[test]
     #[ignore]
     pub fn test_four_clever_biased_players() {
-        let mut clever = CleverPlayer::new(1000, 1000, vec![
+
+        let result;
+        let now = Instant::now();
+        let clever: Box<Player> = Box::new(CleverPlayer::new(1000, 1000, vec![
             vec![3, 2],
             vec![0, 3],
             vec![1, 0],
             vec![2, 1],
-            ], true);
-        let player = &mut clever as &mut Player;
-        let mut players = vec![player];
-        let result = play(&[0, 0, 0, 0], &mut players);
+            ], true));
+        {
+            let mut players = vec![clever];
+            result = play(&[0, 0, 0, 0], &mut players);
+            if result == -1 {
+                println!("Result is a draw");
+            } else {
+                println!("Win for player {}", result);
+            }
+        }
+        // println!("{}", clever.info());
+        println!("time taken {} seconds", now.elapsed().as_secs());
+        assert!(result == -1, "test_four_clever_players: expecting a draw");
+        println!("----------------");
+        println!();
+    }
+   
+    fn test_four_symmetric(prefs: &[usize]) {
+        let result;
+        let now = Instant::now();
+
+        let n = 4;
+        let mut preferences = Vec::new();
+        for i in 0..n {
+            let mut subprefs = Vec::new();
+            for p in prefs {
+                let preference = (p + i) % n;
+                subprefs.push(preference);
+            }
+            preferences.push(subprefs);
+        }
+
+        let clever: Box<Player> = Box::new(CleverPlayer::new(1000, 1000, preferences, true));
+        {
+            let mut players = vec![clever];
+            result = play(&[0, 0, 0, 0], &mut players);
+            if result == -1 {
+                println!("Result is a draw");
+            } else {
+                println!("Win for player {}", result);
+            }
+        }
+        println!("for preferences: {:?}", prefs);
+        // println!("{}", clever.info());
+        println!("time taken {} seconds", now.elapsed().as_secs());
+        // assert!(result == -1, "test_four_symmetric: expecting a draw");
+        println!("----------------");
+        println!();
+    }
+
+    #[test]
+    // #[ignore]
+    pub fn test_all_four_clever_symmetrically_biased_players() {
+
+        test_four_symmetric(&[1, 2, 3]);
+        test_four_symmetric(&[2, 1, 3]);
+        test_four_symmetric(&[3, 1, 2]);
+        test_four_symmetric(&[1, 3, 2]);
+        test_four_symmetric(&[2, 3, 1]);
+        test_four_symmetric(&[3, 2, 1]);
+
+        println!("----------------");
+        println!();
+    }
+
+    #[test]
+    #[ignore]
+    pub fn test_five_clever_biased_players() {
+
+        let now = Instant::now();
+        let clever: Box<Player> = Box::new(CleverPlayer::new(1000, 1000, vec![
+            vec![4, 3, 2],
+            vec![0, 4, 3],
+            vec![1, 0, 4],
+            vec![2, 1, 0],
+            vec![3, 2, 1],
+            ], true));
+        let mut players = vec![clever];
+        let result = play(&[0, 0, 0, 0, 0], &mut players);
         if result == -1 {
             println!("Result is a draw");
         } else {
             println!("Win for player {}", result);
         }
         // println!("number of entries in cache: {}", clever.cache_size());
-        assert!(result == -1, "test_four_clever_players: expecting a draw");
+        println!("time taken {} seconds", now.elapsed().as_secs());
+        assert!(result == -1, "test_five_clever_players: expecting a draw");
         println!("----------------");
         println!();
     }

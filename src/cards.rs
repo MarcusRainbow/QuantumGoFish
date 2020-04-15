@@ -657,22 +657,13 @@ impl Cards {
     }
 
     /** 
-        Returns a list of legal moves, expressed as tuples of
-        other, suit.
+        Returns a list of legal moves in a fixed order, depending
+        on the ordering of suits specified in permutations.
 
         Note that it would be possible for a theoretically legal
         move to have no legal reply. This case should be rejected
         by shake_down, which should add to the known_void list any
         suit that would have no legal reply.
-    */
-    pub fn legal_moves(&mut self, this: usize) -> Vec<(usize, i8)> {
-        let permutation = self.permutation(this);
-        return self.legal_moves_given_permutation(this, &permutation);
-    }
-
-    /** 
-        Returns a list of legal moves in a fixed order, depending
-        on the ordering of suits specified in permutations.
     */
     pub fn legal_moves_given_permutation(&self, this: usize, permutation: &[i8]) -> Vec<(usize, i8)> {
         let mut moves = vec![];
