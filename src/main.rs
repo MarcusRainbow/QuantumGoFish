@@ -17,6 +17,7 @@ fn main() {
     let mut clever = None;
     let mut max_depth = 1000;
     let mut max_has_depth = 1000;
+    let mut progress = 0;
     let mut prefs = Vec::new();
     let mut symmetric = true;
 
@@ -45,7 +46,7 @@ fn main() {
                 let c = player_types.len();
                 clever = Some(c);
                 players.push(c);
-                player_types.push(Box::new(CleverPlayer::new(max_depth, max_has_depth, prefs.clone(), symmetric)));
+                player_types.push(Box::new(CleverPlayer::new(max_depth, max_has_depth, progress, prefs.clone(), symmetric)));
             }
         } else if arg.starts_with("prefs:") {
             prefs.clear();
@@ -65,14 +66,16 @@ fn main() {
                 process::exit(-1);
             }
             let part_len = prefs_len - 2;
+            assert!(part_len * prefs_len == pv.len());
             let mut src = 0;
-            for i in 0..prefs_len {
+            for _ in 0..prefs_len {
                 let mut part = Vec::new();
                 for _ in 0..part_len {
+                    // println!("parse pv[{}] = {}", src, pv[src]);
                     part.push(pv[src].parse::<usize>().unwrap());
                     src += 1;
                 }
-                prefs[i] = part;
+                prefs.push(part);
             }
             println!("prefs: {:?}", prefs);
 
@@ -96,13 +99,18 @@ fn main() {
             let (_, d) = arg.split_at(14);
             max_has_depth = d.parse::<i64>().unwrap();
             println!("max_has_depth: {}", max_has_depth);
+        } else if arg.starts_with("progress=") {
+            let (_, d) = arg.split_at(9);
+            progress = d.parse::<i64>().unwrap();
+            println!("progress: {}", progress);
         } else if arg == "help" {
             println!("{} [options] [human|clever]*", args[0]);
             println!("e.g. {} max_depth=3 prefs=1,2,0 human human clever", args[0]);
             println!("Options:");
-            println!("    max_depth=<int>       how deep to search");
-            println!("    max_has_depth=<int>   how deep to search for 'has_card'");
-            println!("    prefs=<int>,<int>,... 2nd, 3rd preferences for each player");
+            println!("    max_depth=<int>       how deep to search (1000)");
+            println!("    max_has_depth=<int>   how deep to search for 'has_card' (1000)");
+            println!("    progress=<int>        show progress every N cache writes (0)");
+            println!("    prefs:<int>,<int>,... 2nd, 3rd preferences for each player (none)");
         } else {
             eprintln!("unrecognised arg {}: try {} help", arg, args[0]);
             process::exit(-1);

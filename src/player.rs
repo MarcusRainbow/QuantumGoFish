@@ -1,6 +1,8 @@
 use std::collections::{HashMap, HashSet};
 use std::io;
 use std::io::BufRead;
+use std::io::Write;
+use std::cmp::min;
 use cards::{Cards, ILLEGAL_CARDS, NO_WINNER};
 
 /** 
@@ -11,11 +13,11 @@ pub trait Player {
         This player must ask one other player for a card of
         a given suit. Returns other_player, suit.
     */
-    fn next_move(&mut self, this: usize, cards: &Cards, history: &HashSet<i64>) -> (usize, i8);
+    fn next_move(&mut self, this: usize, cards: &Cards, history: &HashSet<i128>) -> (usize, i8);
     /** 
         Returns true if the player has this card.
     */
-    fn has_card(&mut self, this: usize, other: usize, suit: i8, cards: &Cards, history: &HashSet<i64>) -> bool;
+    fn has_card(&mut self, this: usize, other: usize, suit: i8, cards: &Cards, history: &HashSet<i128>) -> bool;
 
     /**
         Returns information about this object
@@ -42,7 +44,7 @@ impl HumanPlayer {
 }
 
 impl Player for HumanPlayer {
-    fn next_move(&mut self, this: usize, cards: &Cards, _history: &HashSet<i64>) -> (usize, i8) {
+    fn next_move(&mut self, this: usize, cards: &Cards, _history: &HashSet<i128>) -> (usize, i8) {
         loop {
             let other_input = Self::ask_for("Which player would you like to ask? ", this);
             let suit_input = Self::ask_for("Which suit would you like to ask for? ", this);
@@ -62,7 +64,7 @@ impl Player for HumanPlayer {
         If we have definitely have or do not have the card, we
         do not ask the user. Otherwise we must ask
     */
-    fn has_card(&mut self, this: usize, other: usize, suit: i8, cards: &Cards, _history: & HashSet<i64>) -> bool {
+    fn has_card(&mut self, this: usize, other: usize, suit: i8, cards: &Cards, _history: & HashSet<i128>) -> bool {
         let (forced, has) = cards.has_card(suit, this, other);
         if forced {
             return has;
@@ -92,9 +94,11 @@ impl Player for HumanPlayer {
 pub struct CleverPlayer {
     max_depth: i64,
     max_has_depth: i64,
+    progress: i64,
+    current_progress: i64,
     preferences: Vec<Vec<usize>>,
     symmetric: bool,
-    _cached_moves: HashMap<i64, (i8, i8, i8)>,
+    _cached_moves: HashMap<i128, (i8, i8, i8)>,
 }
 
 impl CleverPlayer {
@@ -112,10 +116,18 @@ impl CleverPlayer {
 
         If other_player is supplied, we share its cache.
     */
-    pub fn new(max_depth: i64, max_has_depth: i64, preferences: Vec<Vec<usize>>, symmetric: bool) -> CleverPlayer {
+    pub fn new(
+        max_depth: i64, 
+        max_has_depth: i64,
+        progress: i64, 
+        preferences: Vec<Vec<usize>>, 
+        symmetric: bool) -> CleverPlayer {
+
         CleverPlayer {
             max_depth: max_depth,
             max_has_depth: max_has_depth,
+            progress: progress,
+            current_progress: 0,
             preferences: preferences,
             symmetric: symmetric,
             _cached_moves: HashMap::new(),
@@ -128,8 +140,8 @@ impl CleverPlayer {
 
         Returns a tuple of (other_player, suit, result, draw_position)
     */
-    pub fn _evaluate_move(&mut self, this: usize, cards: &Cards, history: & HashSet<i64>, depth: i64)
-            -> (usize, i8, i64, i64) {
+    pub fn _evaluate_move(&mut self, this: usize, cards: &Cards, history: & HashSet<i128>, depth: i64)
+            -> (usize, i8, i64, i128) {
         let permutation = cards.permutation(this);
         let pos = cards.position_given_permutation(&permutation, this, self.symmetric);
         let n = permutation.len();
@@ -143,6 +155,15 @@ impl CleverPlayer {
             None => {
                 let (other, suit, result, draw_position) 
                     = self._evaluate_move_uncached(this, cards, history, depth, &permutation);
+
+                if self.progress > 0 {
+                    self.current_progress += 1;
+                    if self.current_progress == self.progress {
+                        self.current_progress = 0;
+                        print!(".");
+                        io::stdout().flush().unwrap();
+                    }
+                }
                 let other_c = (n + other - this) % n;
                 let result_c = if result < 0 { result } else { ((n + result as usize - this) % n) as i64 };
                 let found = permutation.iter().position(|&x| x == suit);
@@ -159,8 +180,8 @@ impl CleverPlayer {
     /** 
         Like _evaluate_move, but not using the cache.
     */
-    pub fn _evaluate_move_uncached(&mut self, this: usize, cards: &Cards, history: & HashSet<i64>, depth: i64, permutation: &[i8]) 
-            -> (usize, i8, i64, i64) {
+    pub fn _evaluate_move_uncached(&mut self, this: usize, cards: &Cards, history: & HashSet<i128>, depth: i64, permutation: &[i8]) 
+            -> (usize, i8, i64, i128) {
         let mut other_winners = vec![];
         let legal_moves = cards.legal_moves_given_permutation(this, permutation);
         assert!(legal_moves.len() > 0);
@@ -174,7 +195,7 @@ impl CleverPlayer {
         }
         for &(other, suit) in &legal_moves {
             let mut copy_cards = cards.clone();
-            let has = self.has_card(other, this, suit, &copy_cards, history);
+            let has = self._evaluate_has_card(other, this, suit, &copy_cards, history, depth - 1);
             if has {
                 copy_cards.transfer(suit, other, this, false);
             } else {
@@ -253,17 +274,7 @@ impl CleverPlayer {
         panic!("should never get here")
     }
 
-}
-
-impl Player for CleverPlayer {
-    fn next_move(&mut self, this: usize, cards: &Cards, history: & HashSet<i64>) -> (usize, i8) {
-        let max_depth = self.max_depth;
-        let (other, suit, result, _) = self._evaluate_move(this, cards, history, max_depth);
-        println!("Result={}", result);
-        return (other, suit);
-    }
-
-    fn has_card(&mut self, this: usize, other: usize, suit: i8, cards: &Cards, history: & HashSet<i64>) -> bool {
+    fn _evaluate_has_card(&mut self, this: usize, other: usize, suit: i8, cards: &Cards, history: & HashSet<i128>, given_depth: i64) -> bool {
         let (forced, has) = cards.has_card(suit, this, other);
         if forced {
             return has;
@@ -274,7 +285,9 @@ impl Player for CleverPlayer {
         if yes_winner == this as i64 {
             return true;
         }
-        if self.max_has_depth == 0 {
+
+        let depth = min(given_depth, self.max_has_depth);
+        if depth == 0 {
             return yes_winner != NO_WINNER;
         }
 
@@ -288,8 +301,7 @@ impl Player for CleverPlayer {
             }
         } else {
             let mut copy_history = history.clone();
-            let depth = self.max_has_depth - 1;
-            let tmp0 = self._evaluate_move(next_player, &copy_cards, &mut copy_history, depth);
+            let tmp0 = self._evaluate_move(next_player, &copy_cards, &mut copy_history, depth - 1);
             yes_winner = tmp0.2;
             if yes_winner == this as i64 {
                 return true;
@@ -310,8 +322,7 @@ impl Player for CleverPlayer {
             }
         } else {
             let mut copy_history = history.clone();
-            let depth = self.max_has_depth - 1;
-            let tmp2 = self._evaluate_move(next_player, &copy_cards, &mut copy_history, depth);
+            let tmp2 = self._evaluate_move(next_player, &copy_cards, &mut copy_history, depth - 1);
             no_winner = tmp2.2;
             if no_winner == this as i64 {
                 return false;
@@ -345,6 +356,20 @@ impl Player for CleverPlayer {
         }
         return false;
     }
+}
+
+impl Player for CleverPlayer {
+    fn next_move(&mut self, this: usize, cards: &Cards, history: & HashSet<i128>) -> (usize, i8) {
+        let max_depth = self.max_depth;
+        let (other, suit, result, _) = self._evaluate_move(this, cards, history, max_depth);
+        println!("Result={}", result);
+        return (other, suit);
+    }
+
+    fn has_card(&mut self, this: usize, other: usize, suit: i8, cards: &Cards, history: & HashSet<i128>) -> bool {
+        let max_has_depth = self.max_has_depth;
+        return self._evaluate_has_card(this, other, suit, cards, history, max_has_depth);
+    }
 
     fn info(&self) -> String {
         let len = self._cached_moves.len();
@@ -359,44 +384,40 @@ mod tests {
     use std::time::Instant;
     
     #[test]
+    #[ignore]
     pub fn test_two_human_players() {
         let human: Box<Player> = Box::new(HumanPlayer::new());
-        {
-            let mut players = vec![human];
-            let result = play(&[0, 0], &mut players);
-            if result == -1 {
-                println!("Result is a draw");
-            } else {
-                println!("Win for player {}", result);
-            }
-            assert!(result == -1, "test_two_human_players: expecting a draw");
+        let mut players = vec![human];
+        let result = play(&[0, 0], &mut players);
+        if result == -1 {
+            println!("Result is a draw");
+        } else {
+            println!("Win for player {}", result);
         }
-        // println!("{}", clever.info());
+        assert!(result == -1, "test_two_human_players: expecting a draw");
         println!("----------------");
         println!();
     }
 
     #[test]
     pub fn test_two_clever_players() {
-        let clever: Box<Player> = Box::new(CleverPlayer::new(1000, 1000, vec![], true));
-        {
-            let mut players = vec![clever];
-            let result = play(&[0, 0], &mut players);
-            if result == -1 {
-                println!("Result is a draw");
-            } else {
-                println!("Win for player {}", result);
-            }
-            assert!(result == -1, "test_two_clever_players: expecting a draw");
+        let clever: Box<Player> = Box::new(CleverPlayer::new(1000, 1000, 0, vec![], true));
+        let mut players = vec![clever];
+        let result = play(&[0, 0], &mut players);
+        if result == -1 {
+            println!("Result is a draw");
+        } else {
+            println!("Win for player {}", result);
         }
-        // println!("{}", clever.info());
+        assert!(result == -1, "test_two_clever_players: expecting a draw");
+        println!("{}", players[0].info());
         println!("----------------");
         println!();
     }
     
     #[test]
     pub fn test_three_clever_players() {
-        let clever: Box<Player> = Box::new(CleverPlayer::new(1000, 1000, vec![], true));
+        let clever: Box<Player> = Box::new(CleverPlayer::new(1000, 1000, 0, vec![], true));
         let mut players = vec![clever];
         let result = play(&[0, 0, 0], &mut players);
         if result == -1 {
@@ -404,24 +425,22 @@ mod tests {
         } else {
             println!("Win for player {}", result);
         }
-        // println!("{}", clever.info());
+        println!("{}", players[0].info());
         println!("----------------");
         println!();
     }
     
     pub fn three_biased_players(preferences: Vec<Vec<usize>>, symmetric: bool) -> i64 {
         let result;
-        let clever: Box<Player> = Box::new(CleverPlayer::new(1000, 1000, preferences, symmetric));
-        {
-            let mut players = vec![clever];
-            result = play(&[0, 0, 0], &mut players);
-            if result == -1 {
-                println!("Result is a draw");
-            } else {
-                println!("Win for player {}", result);
-            }
+        let clever: Box<Player> = Box::new(CleverPlayer::new(1000, 1000, 0, preferences, symmetric));
+        let mut players = vec![clever];
+        result = play(&[0, 0, 0], &mut players);
+        if result == -1 {
+            println!("Result is a draw");
+        } else {
+            println!("Win for player {}", result);
         }
-        // println!("{}", clever.info());
+        println!("{}", players[0].info());
         return result;
     }
     
@@ -463,22 +482,20 @@ mod tests {
 
         let result;
         let now = Instant::now();
-        let clever: Box<Player> = Box::new(CleverPlayer::new(1000, 1000, vec![
+        let clever: Box<Player> = Box::new(CleverPlayer::new(1000, 1000, 2, vec![
             vec![3, 2],
             vec![0, 3],
             vec![1, 0],
             vec![2, 1],
             ], true));
-        {
-            let mut players = vec![clever];
-            result = play(&[0, 0, 0, 0], &mut players);
-            if result == -1 {
-                println!("Result is a draw");
-            } else {
-                println!("Win for player {}", result);
-            }
+        let mut players = vec![clever];
+        result = play(&[0, 0, 0, 0], &mut players);
+        if result == -1 {
+            println!("Result is a draw");
+        } else {
+            println!("Win for player {}", result);
         }
-        // println!("{}", clever.info());
+        println!("{}", players[0].info());
         println!("time taken {} seconds", now.elapsed().as_secs());
         assert!(result == -1, "test_four_clever_players: expecting a draw");
         println!("----------------");
@@ -500,18 +517,16 @@ mod tests {
             preferences.push(subprefs);
         }
 
-        let clever: Box<Player> = Box::new(CleverPlayer::new(1000, 1000, preferences, true));
-        {
-            let mut players = vec![clever];
-            result = play(&[0, 0, 0, 0], &mut players);
-            if result == -1 {
-                println!("Result is a draw");
-            } else {
-                println!("Win for player {}", result);
-            }
+        let clever: Box<Player> = Box::new(CleverPlayer::new(1000, 1000, 1, preferences, true));
+        let mut players = vec![clever];
+        result = play(&[0, 0, 0, 0], &mut players);
+        if result == -1 {
+            println!("Result is a draw");
+        } else {
+            println!("Win for player {}", result);
         }
         println!("for preferences: {:?}", prefs);
-        // println!("{}", clever.info());
+        println!("{}", players[0].info());
         println!("time taken {} seconds", now.elapsed().as_secs());
         // assert!(result == -1, "test_four_symmetric: expecting a draw");
         println!("----------------");
@@ -538,7 +553,7 @@ mod tests {
     pub fn test_five_clever_biased_players() {
 
         let now = Instant::now();
-        let clever: Box<Player> = Box::new(CleverPlayer::new(1000, 1000, vec![
+        let clever: Box<Player> = Box::new(CleverPlayer::new(1000, 1000, 2, vec![
             vec![4, 3, 2],
             vec![0, 4, 3],
             vec![1, 0, 4],

@@ -275,15 +275,15 @@ impl Hand {
         Note that we assume the hand is not an immediate winner, so
         the count of cards in any suit must be less than four.
     */
-    pub fn position(&self, mut pos: i64, permutation: &[i8]) -> i64 {
+    pub fn position(&self, mut pos: i128, permutation: &[i8]) -> i128 {
         for i in permutation {
             let count = self.known_cards.get(&i).cloned().unwrap_or(0);
             assert!(count >= 0 && count < 4);
             pos *= 4;
-            pos += count as i64;
+            pos += count as i128;
         }
         pos *= 8;
-        pos += self.number_of_unknown_cards as i64;
+        pos += self.number_of_unknown_cards as i128;
         for i in permutation {
             let count = if self.known_voids.contains(i) { 1 } else { 0 };
             pos *= 2;
@@ -706,7 +706,7 @@ impl Cards {
         Returns a representation of the current set of hands as an integer,
         so we can test whether the position repeats.
     */
-    pub fn position(&mut self, last_player: usize) -> i64 {
+    pub fn position(&mut self, last_player: usize) -> i128 {
         let n = self.number_of_players() as i8;
         let permutation : Vec<i8> = (0..n).collect();
         return self.position_given_permutation(&permutation, last_player, false);
@@ -723,7 +723,7 @@ impl Cards {
 
         Note that position is always an integer greater or equal to zero.
     */
-    pub fn position_given_permutation(&self, permutation: &[i8], last_player: usize, player_symmetric: bool) -> i64 {
+    pub fn position_given_permutation(&self, permutation: &[i8], last_player: usize, player_symmetric: bool) -> i128 {
         let mut pos = 0;
         let n = self.hands.len();
         assert!(last_player < n);
@@ -732,8 +732,8 @@ impl Cards {
             pos = hand.position(pos, permutation);
         }
         if !player_symmetric {
-            pos *= n as i64;
-            pos += last_player as i64;
+            pos *= n as i128;
+            pos += last_player as i128;
         }
         return pos;
     }
